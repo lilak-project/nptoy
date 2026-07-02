@@ -1,0 +1,18 @@
+# secrets & runtime state — server-only
+.env
+/data/
+
+# per-service runtime markers
+**/.port
+**/.pid
+
+# deps & build output — rebuilt inside the Docker image
+**/node_modules/
+**/.venv/
+**/dist/
+**/__pycache__/
+**/*.pyc
+
+# misc
+.DS_Store
+*.log
