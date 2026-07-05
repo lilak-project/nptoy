@@ -24,5 +24,38 @@ export async function post(url, body) {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
   return res.json()
 }
+export async function del(url) {
+  const res = await fetch(apiURL(url), { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.json()
+}
+// multipart upload (FormData sets its own Content-Type boundary)
+export async function postForm(url, formData) {
+  const res = await fetch(apiURL(url), { method: 'POST', headers: authHeaders(), body: formData })
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.json()
+}
+// Fetch a protected file with the bearer token and hand back an object URL
+// (<img>/<a> can't carry the Authorization header themselves).
+export async function fetchBlobURL(url) {
+  const res = await fetch(apiURL(url), { headers: authHeaders() })
+  if (!res.ok) throw new Error(`${res.status}`)
+  return URL.createObjectURL(await res.blob())
+}
 // The portal cover UI lives one level up from this service's base.
 export function portalHome() { return PORTAL_BASE ? PORTAL_BASE.replace(/\/p\/[^/]+$/, '/') || '/' : '/' }
+
+// Decode the SSO JWT client-side for the portal profile (name/email/avatar), so the
+// nptoy chrome shows the SAME identity as the portal (and the community avatars).
+export function portalProfile() {
+  try {
+    const t = token()
+    if (!t) return { name: 'guest', email: '', color: '', shape: '' }
+    const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return {
+      name: p.name || p.username || p.email || 'guest',
+      email: p.email || '', color: p.color || '', shape: p.shape || '',
+      role: p.prole || p.role || 'user',
+    }
+  } catch { return { name: 'guest', email: '', color: '', shape: '' } }
+}

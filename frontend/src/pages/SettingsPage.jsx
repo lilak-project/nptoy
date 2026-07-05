@@ -4,6 +4,7 @@ import { get } from '../api'
 import AccountSection from './settings/AccountSection'
 import ManageUsers from './settings/ManageUsers'
 import ServiceLocal from './settings/ServiceLocal'
+import AdminTab from '../g4/AdminTab.jsx'
 
 // Portal-centric Settings: account + user management come from the portal;
 // tabs / profile-types are service-local stubs to fill in.
@@ -17,6 +18,7 @@ export default function SettingsPage() {
     { id: 'account', label: t('set_account'), icon: 'user', group: 'me' },
     { id: 'users', label: t('set_users'), icon: 'users', group: 'people' },
     ...(isManager ? [
+      { id: 'limits', label: '사용자 한도', icon: 'gauge', group: 'appearance' },
       { id: 'tabs', label: t('set_tabs'), icon: 'browse', group: 'appearance' },
       { id: 'profiles', label: t('set_profiles'), icon: 'user', group: 'appearance' },
     ] : []),
@@ -32,6 +34,7 @@ export default function SettingsPage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           {active === 'account' && <AccountSection me={me} />}
           {active === 'users' && <ManageUsers />}
+          {active === 'limits' && <AdminTab />}
           {active === 'tabs' && <ServiceLocal title={t('set_tabs')} />}
           {active === 'profiles' && <ServiceLocal title={t('set_profiles')} />}
         </div>
