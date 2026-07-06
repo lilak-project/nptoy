@@ -26,7 +26,6 @@ import inputs
 import migrate
 import params as params_mod
 import rbrowser as rbrowser_mod
-import chat as chat_mod
 import saves as saves_mod
 import scene
 import stylepresets as styles_mod
