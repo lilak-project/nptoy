@@ -6,6 +6,7 @@ user gets an isolated workspace and a slice of the global single-worker queue.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import uuid
@@ -17,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import anon as anon_mod
 import browse
 import common
 import config
@@ -406,186 +408,22 @@ def styles_delete(sid: str, user: PortalUser = Depends(require_user)) -> dict:
     return {"ok": True}
 
 
-# ── community chat (one global room; messages + questions + files + moderation) ─
-_UPLOAD_DIR = config.DATA_ROOT / "community_uploads"
+# ── community chat: shared reusable module (kit <Community> + community.py) ────
+from community import build_community_router
 
 
-def _banned_keys() -> set:
-    session = db.Session()
-    try:
-        return {b.user_key for b in session.query(db.CommunityBan).all()}
-    finally:
-        session.close()
+def _cm_identity(user: PortalUser = Depends(require_user)) -> dict:
+    """Adapt nptoy's strict PortalUser → the soft-identity dict the community
+    router expects (carries the portal avatar so chat matches the portal)."""
+    return {"authenticated": True, "email": user.email, "username": user.username,
+            "name": user.name, "role": user.role, "color": user.color, "shape": user.shape}
 
 
-class ChatPost(BaseModel):
-    body: str = ""
-    kind: str = "msg"          # 'msg' | 'question'
-    reply_to_id: int = 0
-    attachments: list = []
-
-
-@app.get("/api/community/messages")
-def community_messages(user: PortalUser = Depends(require_user)) -> dict:
-    """Latest 120 messages (full refresh each poll → deletions/edits propagate)."""
-    chat_mod.touch(user.user_key, user.name, user.color, user.shape)   # polling = presence
-    session = db.Session()
-    try:
-        rows = list(reversed(session.query(db.ChatMessage)
-                    .order_by(db.ChatMessage.id.desc()).limit(120).all()))
-        return {"messages": [r.to_dict() for r in rows], "online": chat_mod.online(),
-                "me": user.user_key, "my_name": user.name, "my_role": user.role,
-                "banned": user.user_key in _banned_keys()}
-    finally:
-        session.close()
-
-
-@app.get("/api/community/questions")
-def community_questions(user: PortalUser = Depends(require_user)) -> dict:
-    session = db.Session()
-    try:
-        rows = list(reversed(session.query(db.ChatMessage)
-                    .filter(db.ChatMessage.kind == "question")
-                    .order_by(db.ChatMessage.id.desc()).limit(200).all()))
-        return {"questions": [r.to_dict() for r in rows]}
-    finally:
-        session.close()
-
-
-@app.post("/api/community/messages")
-def community_post(body: ChatPost, user: PortalUser = Depends(require_user)) -> dict:
-    if user.user_key in _banned_keys():
-        raise HTTPException(status_code=403, detail="커뮤니티 이용이 제한된 계정입니다.")
-    text = (body.body or "").strip()[:4000]
-    kind = "question" if body.kind == "question" else "msg"
-    for pfx in ("/질문", "/q"):                # slash command registers a question
-        if text == pfx or text.lower().startswith(pfx.lower() + " "):
-            text = text[len(pfx):].strip()
-            kind = "question"
-            break
-    atts = (body.attachments if isinstance(body.attachments, list) else [])[:6]
-    if not text and not atts:
-        raise HTTPException(status_code=400, detail="빈 메시지입니다.")
-    chat_mod.touch(user.user_key, user.name, user.color, user.shape)
-    session = db.Session()
-    try:
-        rt_author = rt_body = ""
-        if body.reply_to_id:
-            orig = session.get(db.ChatMessage, body.reply_to_id)
-            if orig:
-                rt_author = orig.author_name
-                rt_body = (orig.body or "")[:160]
-        m = db.ChatMessage(
-            author_key=user.user_key, author_name=user.name,
-            author_color=user.color, author_shape=user.shape, body=text, kind=kind,
-            reply_to_id=body.reply_to_id or 0, reply_to_author=rt_author, reply_to_body=rt_body,
-            attachments=json.dumps(atts))
-        session.add(m)
-        session.commit()
-        session.refresh(m)
-        return m.to_dict()
-    finally:
-        session.close()
-
-
-@app.post("/api/community/upload")
-def community_upload(file: UploadFile = File(...), user: PortalUser = Depends(require_user)) -> dict:
-    if user.user_key in _banned_keys():
-        raise HTTPException(status_code=403, detail="커뮤니티 이용이 제한된 계정입니다.")
-    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    ext = Path(file.filename or "file").suffix[:12]
-    stored = uuid.uuid4().hex + ext
-    dest = _UPLOAD_DIR / stored
-    size = 0
-    with open(dest, "wb") as f:
-        while True:
-            chunk = file.file.read(1 << 20)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > 20 * 1024 * 1024:        # 20 MB cap
-                f.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="파일이 너무 큽니다 (최대 20MB).")
-            f.write(chunk)
-    return {"name": file.filename or stored, "url": f"api/community/files/{stored}",
-            "type": file.content_type or "", "size": size}
-
-
-@app.get("/api/community/files/{stored}")
-def community_file(stored: str, user: PortalUser = Depends(require_user)) -> FileResponse:
-    if "/" in stored or ".." in stored:
-        raise HTTPException(status_code=404, detail="not found")
-    p = _UPLOAD_DIR / stored
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="not found")
-    return FileResponse(p)
-
-
-@app.delete("/api/community/messages/{mid}")
-def community_delete(mid: int, _: PortalUser = Depends(require_manager)) -> dict:
-    session = db.Session()
-    try:
-        m = session.get(db.ChatMessage, mid)
-        if m:
-            session.delete(m)
-            session.commit()
-        return {"ok": True}
-    finally:
-        session.close()
-
-
-@app.post("/api/community/clear")
-def community_clear(_: PortalUser = Depends(require_manager)) -> dict:
-    session = db.Session()
-    try:
-        n = session.query(db.ChatMessage).delete()
-        session.commit()
-        return {"ok": True, "deleted": n}
-    finally:
-        session.close()
-
-
-class BanReq(BaseModel):
-    user_key: str
-    name: str = ""
-    banned: bool = True
-
-
-@app.get("/api/community/users")
-def community_users(_: PortalUser = Depends(require_manager)) -> dict:
-    """Everyone who's posted or is online, with their ban status — for moderation."""
-    session = db.Session()
-    try:
-        bans = {b.user_key: b for b in session.query(db.CommunityBan).all()}
-        authors: dict[str, str] = {}
-        for k, nm in session.query(db.ChatMessage.author_key, db.ChatMessage.author_name).distinct():
-            if k:
-                authors[k] = nm
-        for u in chat_mod.online():
-            authors.setdefault(u["key"], u["name"])
-        users = [{"user_key": k, "name": nm, "banned": k in bans} for k, nm in authors.items()]
-        users.sort(key=lambda u: (not u["banned"], u["name"].lower()))
-        return {"users": users}
-    finally:
-        session.close()
-
-
-@app.post("/api/community/ban")
-def community_ban(req: BanReq, _: PortalUser = Depends(require_manager)) -> dict:
-    session = db.Session()
-    try:
-        existing = session.get(db.CommunityBan, req.user_key)
-        if req.banned and not existing:
-            session.add(db.CommunityBan(user_key=req.user_key, name=req.name))
-            session.commit()
-        elif not req.banned and existing:
-            session.delete(existing)
-            session.commit()
-        return {"ok": True, "banned": req.banned}
-    finally:
-        session.close()
-    return {"ok": True}
+app.include_router(build_community_router(
+    db_path=config.DATA_ROOT / "community.db",
+    uploads_dir=config.DATA_ROOT / "community_uploads",
+    identity=_cm_identity,
+))
 
 
 @app.get("/api/inputs/file")
