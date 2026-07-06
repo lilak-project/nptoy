@@ -18,7 +18,6 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import anon as anon_mod
 import browse
 import common
 import config
