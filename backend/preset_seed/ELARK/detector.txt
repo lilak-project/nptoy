@@ -1,0 +1,379 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Target
+    THICKNESS = 2.5 micrometer
+    RADIUS    = 10 mm
+    MATERIAL  = CH2
+    ANGLE     = 0 deg
+    X         = 0 mm
+    Y         = 0 mm
+    Z         = 0 mm
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 1/12
+STARK
+    Type = X6
+    Group = 100
+    Rho  = 95.0 mm
+    Phi  = 0.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 2/12
+STARK
+    Type = X6
+    Group = 101
+    Rho  = 95.0 mm
+    Phi  = 30.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 3/12
+STARK
+    Type = X6
+    Group = 102
+    Rho  = 95.0 mm
+    Phi  = 60.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 4/12
+STARK
+    Type = X6
+    Group = 103
+    Rho  = 95.0 mm
+    Phi  = 90.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 5/12
+STARK
+    Type = X6
+    Group = 104
+    Rho  = 95.0 mm
+    Phi  = 120.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 6/12
+STARK
+    Type = X6
+    Group = 105
+    Rho  = 95.0 mm
+    Phi  = 150.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 7/12
+STARK
+    Type = X6
+    Group = 106
+    Rho  = 95.0 mm
+    Phi  = 180.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 8/12
+STARK
+    Type = X6
+    Group = 107
+    Rho  = 95.0 mm
+    Phi  = 210.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 9/12
+STARK
+    Type = X6
+    Group = 108
+    Rho  = 95.0 mm
+    Phi  = 240.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 10/12
+STARK
+    Type = X6
+    Group = 109
+    Rho  = 95.0 mm
+    Phi  = 270.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 11/12
+STARK
+    Type = X6
+    Group = 110
+    Rho  = 95.0 mm
+    Phi  = 300.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 12/12
+STARK
+    Type = X6
+    Group = 111
+    Rho  = 95.0 mm
+    Phi  = 330.0 deg
+    Z    = 138.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 1/12
+STARK
+    Type = X6
+    Group = 100
+    Rho  = 102.0 mm
+    Phi  = 0.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 2/12
+STARK
+    Type = X6
+    Group = 101
+    Rho  = 102.0 mm
+    Phi  = 30.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 3/12
+STARK
+    Type = X6
+    Group = 102
+    Rho  = 102.0 mm
+    Phi  = 60.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 4/12
+STARK
+    Type = X6
+    Group = 103
+    Rho  = 102.0 mm
+    Phi  = 90.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 5/12
+STARK
+    Type = X6
+    Group = 104
+    Rho  = 102.0 mm
+    Phi  = 120.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 6/12
+STARK
+    Type = X6
+    Group = 105
+    Rho  = 102.0 mm
+    Phi  = 150.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 7/12
+STARK
+    Type = X6
+    Group = 106
+    Rho  = 102.0 mm
+    Phi  = 180.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 8/12
+STARK
+    Type = X6
+    Group = 107
+    Rho  = 102.0 mm
+    Phi  = 210.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 9/12
+STARK
+    Type = X6
+    Group = 108
+    Rho  = 102.0 mm
+    Phi  = 240.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 10/12
+STARK
+    Type = X6
+    Group = 109
+    Rho  = 102.0 mm
+    Phi  = 270.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 11/12
+STARK
+    Type = X6
+    Group = 110
+    Rho  = 102.0 mm
+    Phi  = 300.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 12/12
+STARK
+    Type = X6
+    Group = 111
+    Rho  = 102.0 mm
+    Phi  = 330.0 deg
+    Z    = 138.5 mm
+    Flip = 0
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 1/16
+STARK
+    Type = X6
+    Group = 200
+    Rho  = 126.5 mm
+    Phi  = 0.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 2/16
+STARK
+    Type = X6
+    Group = 201
+    Rho  = 126.5 mm
+    Phi  = 22.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 3/16
+STARK
+    Type = X6
+    Group = 202
+    Rho  = 126.5 mm
+    Phi  = 45.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 4/16
+STARK
+    Type = X6
+    Group = 203
+    Rho  = 126.5 mm
+    Phi  = 67.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 5/16
+STARK
+    Type = X6
+    Group = 204
+    Rho  = 126.5 mm
+    Phi  = 90.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 6/16
+STARK
+    Type = X6
+    Group = 205
+    Rho  = 126.5 mm
+    Phi  = 112.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 7/16
+STARK
+    Type = X6
+    Group = 206
+    Rho  = 126.5 mm
+    Phi  = 135.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 8/16
+STARK
+    Type = X6
+    Group = 207
+    Rho  = 126.5 mm
+    Phi  = 157.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 9/16
+STARK
+    Type = X6
+    Group = 208
+    Rho  = 126.5 mm
+    Phi  = 180.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 10/16
+STARK
+    Type = X6
+    Group = 209
+    Rho  = 126.5 mm
+    Phi  = 202.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 11/16
+STARK
+    Type = X6
+    Group = 210
+    Rho  = 126.5 mm
+    Phi  = 225.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 12/16
+STARK
+    Type = X6
+    Group = 211
+    Rho  = 126.5 mm
+    Phi  = 247.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 13/16
+STARK
+    Type = X6
+    Group = 212
+    Rho  = 126.5 mm
+    Phi  = 270.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 14/16
+STARK
+    Type = X6
+    Group = 213
+    Rho  = 126.5 mm
+    Phi  = 292.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 15/16
+STARK
+    Type = X6
+    Group = 214
+    Rho  = 126.5 mm
+    Phi  = 315.0 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% X6 Forward E 16/16
+STARK
+    Type = X6
+    Group = 215
+    Rho  = 126.5 mm
+    Phi  = 337.5 deg
+    Z    = 77.5 mm
+    Flip = 1
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% QQQ5 Backward E 0/4
+STARK
+    Type = QQQ5
+    CsI = 1
+    Group = 300
+    Pos  = 0 0 180 mm
+    Beta = 0 deg
+    Flip = 0
+

@@ -1,0 +1,28 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%% Reaction file for 21Na+p elastic scattering %%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Beam
+    Particle= 21Na
+    Energy= 168 MeV
+    SigmaEnergy= 0 MeV
+    SigmaThetaX= 0 deg
+    SigmaPhiY= 0 deg
+    SigmaX= 1.3333333333333333 mm
+    SigmaY= 1.3333333333333333 mm
+    MeanThetaX= 0. deg
+    MeanPhiY= 0 deg
+    MeanX= 0 mm
+    MeanY= 0 mm
+    ZEmission = -1000 mm
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+TwoBodyReaction
+    Beam= 21Na
+    Target= 1H
+    Light= 1H
+    Heavy= 21Na
+    ExcitationEnergyLight= 0.0 MeV
+    ExcitationEnergyHeavy= 0.0 MeV
+    CrossSectionPath= crosssection_drhbc_21Na_p_40_160.txt CS
+    ShootLight= 1
+    ShootHeavy= 1
+

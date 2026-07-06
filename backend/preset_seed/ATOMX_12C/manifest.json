@@ -1,0 +1,6 @@
+{
+  "example": "ATOMX_12C",
+  "detector": "detector.txt",
+  "reaction": "reaction.txt",
+  "physics": "PhysicsListOption.txt"
+}

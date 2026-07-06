@@ -1,0 +1,38 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Event generator for input/ATOMX_12C.reaction (ATOMX_12C)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Beam
+    Particle= 1H
+    Energy= 12 MeV
+    SigmaEnergy= 0 MeV
+    SigmaThetaX= 0 deg
+    SigmaPhiY= 0 deg
+    SigmaX= 0 mm
+    SigmaY= 0 mm
+    MeanThetaX= 0. deg
+    MeanPhiY= 0 deg
+    MeanX= 0 mm
+    MeanY= 0 mm
+    ZEmission = -1000 mm
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+TwoBodyReaction
+    Beam= 1H
+    Target= 12C
+    Light= 1H
+    Heavy= 12C
+    ExcitationEnergyLight= 0 MeV
+    ExcitationEnergyHeavy= 7.65 MeV
+    CrossSectionPath= flat.txt CS
+    ShootLight= 1
+    ShootHeavy= 1
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Decay 12C
+    Threshold = 7.65 MeV
+    Daughter = 4He 4He 4He
+    ExcitationEnergy = 0 0 0 MeV
+    BranchingRatio = 1
+    LifeTime = 0 ns
+    Shoot = 1 1 1
+

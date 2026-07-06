@@ -41,6 +41,11 @@ SHARED_DIR = config.COMMON_ROOT / "shared"
 _STASH_SCRIPTS = ["draw_sim.C", "rootlogon.C", "SimulatedTree.C", "SimulatedTree.h"]
 _RESERVED = {"scripts", "shared"}     # common/ subdirs that are NOT presets
 
+# Pre-built presets committed WITH the code (relative paths only → relocatable), so a
+# deploy has them even when the nptool project SOURCES aren't on the box. Regenerate
+# with backend/refresh_preset_seed.sh after changing a preset's nptool source.
+SEED_DIR = Path(__file__).resolve().parent / "preset_seed"
+
 # Written when a source project lacks PhysicsListOption.txt (optional in nptool).
 DEFAULT_PHYSICS = """\
 EmPhysicsList                   Option4 % INCLXX_EM Option1 Option2 Option3 Option4 Standard Livermore Penelope
@@ -230,14 +235,29 @@ def _stash_scripts() -> None:
             break
 
 
+def _seed_preset(key: str) -> bool:
+    """Install a committed pre-built preset from preset_seed/ into common/ — the
+    fallback when the nptool project SOURCE isn't present to build from (deploy)."""
+    src = SEED_DIR / key
+    if not (src / MANIFEST).exists():
+        return False
+    dst = preset_dir(key)
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+    return True
+
+
 def build_common(force: bool = False) -> list[str]:
-    """Build any missing presets from config.PROJECTS. Idempotent."""
+    """Ensure every preset exists in common/. Idempotent. Prefer building from the
+    nptool project SOURCE (dev, stays fresh); fall back to the committed seed when
+    the source isn't on this machine (deploy)."""
     config.COMMON_ROOT.mkdir(parents=True, exist_ok=True)
     built = []
     for key, proj in config.PROJECTS.items():
         if not force and (preset_dir(key) / MANIFEST).exists():
             continue
-        if build_one(key, proj):
+        if build_one(key, proj) or _seed_preset(key):
             built.append(key)
     _stash_scripts()
     return built

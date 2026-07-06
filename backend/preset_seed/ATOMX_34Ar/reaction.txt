@@ -1,0 +1,28 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Event generator for input/ATOMX_34Ar.reaction (ATOMX_34Ar)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Beam
+    Particle= 34Ar
+    Energy= 81.6 MeV
+    SigmaEnergy= 0 MeV
+    SigmaThetaX= 0 deg
+    SigmaPhiY= 0 deg
+    SigmaX= 0 mm
+    SigmaY= 0 mm
+    MeanThetaX= 0. deg
+    MeanPhiY= 0 deg
+    MeanX= 0 mm
+    MeanY= 0 mm
+    ZEmission = -1000 mm
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+TwoBodyReaction
+    Beam= 34Ar
+    Target= 4He
+    Light= 1H
+    Heavy= 37K
+    ExcitationEnergyLight= 0 MeV
+    ExcitationEnergyHeavy= 0 MeV
+    CrossSectionPath= flat_90_180.txt CS
+    ShootLight= 1
+    ShootHeavy= 1

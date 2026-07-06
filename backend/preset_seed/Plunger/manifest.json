@@ -1,0 +1,6 @@
+{
+  "example": "Plunger",
+  "detector": "detector.txt",
+  "reaction": "reaction.txt",
+  "physics": "PhysicsListOption.txt"
+}
