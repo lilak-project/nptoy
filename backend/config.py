@@ -81,6 +81,8 @@ PROJECTS = {
              "detector": "hpge.detector", "reaction": "background_plus_co60_x-800.reaction"},
     "GasCF4": {"label": "GasCF4", "dir": f"{_NP}/CSSU/GasCF4",
                "detector": "detector.txt", "reaction": "reaction_alpha_am241.txt"},
+    "W1Mask": {"label": "W1 mask", "dir": f"{_NP}/CSSU/W1Mask",
+               "detector": "detector.txt", "reaction": "reaction_am241_gd148.txt"},
     "Plunger": {"label": "Plunger", "dir": f"{_NP}/Plunger"},
 }
 DEFAULT_PROJECT = next(iter(PROJECTS))

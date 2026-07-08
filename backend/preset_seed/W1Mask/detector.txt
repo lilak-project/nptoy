@@ -1,0 +1,23 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% CSSU W1 detector with a cut mask in front of it.
+% W1 surface is the XY plane at z=0. Sources are at z=-200 mm.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+CSSU
+ Type= W1
+ POS= 0 0 0 mm
+ Length= 50 mm
+ Width= 50 mm
+ Thickness= 1 mm
+ Strips= 16
+ EnergyThreshold= 0.05 MeV
+ ResoEnergy= 20 keV
+
+CSSU
+ Type= Mask
+ POS= 0 0 -50 mm
+ Length= 60 mm
+ Width= 60 mm
+ Thickness= 0.05 mm
+ Material= al-sheet
+ CUT= SQUARE 0 0 12 12 mm
+ CUT2= CIRCLE -15 10 4 mm

@@ -1,0 +1,27 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 241Am and 148Gd alpha sources, both 200 mm in front of the W1 detector.
+% A narrow cone is used so particles illuminate the detector face efficiently.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Isotropic
+ EnergyLow= 5.486 MeV
+ EnergyHigh= 5.486 MeV
+ HalfOpenAngleMin= 0 deg
+ HalfOpenAngleMax= 8 deg
+ Direction= z
+ x0= 0 mm
+ y0= 0 mm
+ z0= -200 mm
+ Particle= alpha
+ Multiplicity= 1
+
+Isotropic
+ EnergyLow= 3.183 MeV
+ EnergyHigh= 3.183 MeV
+ HalfOpenAngleMin= 0 deg
+ HalfOpenAngleMax= 8 deg
+ Direction= z
+ x0= 0 mm
+ y0= 0 mm
+ z0= -200 mm
+ Particle= alpha
+ Multiplicity= 1
