@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -25,6 +27,20 @@ STAGING_DIR = SCI_SHARED_DIR / "staging"     # a job's inputs are staged here; t
 
 def _headers() -> dict:
     return {"Content-Type": "application/json", **({"Authorization": f"Bearer {SCI_TOKEN}"} if SCI_TOKEN else {})}
+
+
+def _http_error_message(exc: urllib.error.HTTPError) -> str:
+    body = exc.read().decode(errors="replace")
+    if body:
+        try:
+            payload = json.loads(body)
+            detail = payload.get("detail")
+            if detail:
+                return str(detail)
+        except json.JSONDecodeError:
+            pass
+        return body
+    return f"sci-runner HTTP {exc.code}"
 
 
 def staging_dir(job_id) -> Path:
@@ -59,3 +75,48 @@ def status(job_id: str) -> dict:
 def result_dir(job_id: str) -> Path:
     """Where this job's output files landed on the shared volume."""
     return SCI_SHARED_DIR / "jobs" / job_id
+
+
+def rbrowser_open(user_key: str) -> dict:
+    return _post("/rbrowser/open", {"user_key": user_key})
+
+
+def rbrowser_http_url(token: str, path: str, query: str = "") -> str:
+    url = f"{SCI_URL}/rbrowser/proxy/{token}/{path}"
+    if query:
+        url += "?" + query
+    return url
+
+
+def rbrowser_ws_url(token: str, path: str, query: str = "") -> str:
+    base = SCI_URL
+    if base.startswith("https://"):
+        base = "wss://" + base[len("https://"):]
+    elif base.startswith("http://"):
+        base = "ws://" + base[len("http://"):]
+    url = f"{base}/rbrowser/proxy/{token}/{path}"
+    if query:
+        url += "?" + query
+    return url
+
+
+# ── interactive sessions (persistent `npsimulation -N` hosted in the runner) ──
+def _get(path: str) -> dict:
+    req = urllib.request.Request(f"{SCI_URL}{path}", headers=_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(_http_error_message(exc)) from exc
+
+
+def _post(path: str, body: dict) -> dict:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(f"{SCI_URL}{path}", data=data, headers=_headers(), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(_http_error_message(exc)) from exc
+
+

@@ -9,14 +9,19 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 import zipfile
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import websockets
 
 import browse
 import common
@@ -29,6 +34,7 @@ import rbrowser as rbrowser_mod
 import saves as saves_mod
 import scene
 import stylepresets as styles_mod
+import sim_client
 import session as session_mod
 import settings as settings_mod
 import worker
@@ -603,8 +609,147 @@ def rbrowser_open(body: RBrowserOpen, user: PortalUser = Depends(require_user)) 
             raise HTTPException(status_code=400, detail="ROOT 파일이 아닙니다.")
     try:
         return rbrowser_mod.open_for(user.user_key)
-    except RuntimeError as e:
+    except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+
+_RB_COOKIE = "nptoy_rbrowser_proxy"
+_HOP_HEADERS = {
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade",
+}
+_RB_TEXT_TYPES = (
+    "text/html",
+    "text/css",
+    "application/javascript",
+    "text/javascript",
+    "application/x-javascript",
+)
+_RB_ASSET_RE = re.compile(r"(?:\.\./)+(jsrootsys|rootui5sys)/")
+
+
+def _rbrowser_session_from_request(request: Request, path: str = "") -> tuple[dict, str]:
+    path_token = None
+    upstream_path = path
+    if "/" in path:
+        first, rest = path.split("/", 1)
+        if first:
+            path_token = first
+            upstream_path = rest
+    token = path_token or request.query_params.get("pt") or request.cookies.get(_RB_COOKIE)
+    sess = rbrowser_mod.session_for_proxy(token)
+    if not sess:
+        raise HTTPException(status_code=403, detail="RBrowser 세션이 없습니다.")
+    return sess, upstream_path
+
+
+def _rbrowser_proxy_prefix(sess: dict) -> str:
+    token = sess.get("proxy") or sess.get("token")
+    return f"/p/{config.SERVICE_NAME}/api/rbrowser/proxy/{token}/"
+
+
+def _rewrite_rbrowser_assets(body: bytes, content_type: str, sess: dict) -> bytes:
+    if not any(content_type.startswith(t) for t in _RB_TEXT_TYPES):
+        return body
+    prefix = _rbrowser_proxy_prefix(sess)
+    text = body.decode(errors="replace")
+    text = _RB_ASSET_RE.sub(lambda m: prefix + m.group(1) + "/", text)
+    for asset in ("jsrootsys", "rootui5sys"):
+        text = text.replace(f'"/{asset}/', f'"{prefix}{asset}/')
+        text = text.replace(f"'/{asset}/", f"'{prefix}{asset}/")
+        text = text.replace(f"`/{asset}/", f"`{prefix}{asset}/")
+        text = text.replace(f"url(/{asset}/", f"url({prefix}{asset}/")
+    return text.encode()
+
+
+@app.api_route("/api/rbrowser/proxy/{path:path}", methods=["GET", "POST", "HEAD"])
+async def rbrowser_proxy(path: str, request: Request) -> Response:
+    sess, upstream_path = _rbrowser_session_from_request(request, path)
+    query_items = [(k, v) for k, v in request.query_params.multi_items() if k != "pt"]
+    query = urllib.parse.urlencode(query_items, doseq=True)
+    if sess.get("backend") == "sci":
+        url = sim_client.rbrowser_http_url(sess["token"], upstream_path, query)
+    else:
+        url = f"http://127.0.0.1:{sess['port']}/{upstream_path}"
+        if query:
+            url += "?" + query
+    headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in _HOP_HEADERS and k.lower() not in {"host", "accept-encoding"}
+    }
+    headers["Accept-Encoding"] = "identity"
+    data = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=request.method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = r.read()
+            content_type = r.headers.get_content_type()
+            body = _rewrite_rbrowser_assets(body, content_type, sess)
+            out_headers = {
+                k: v for k, v in r.headers.items()
+                if k.lower() not in _HOP_HEADERS and k.lower() not in {"content-length", "content-encoding"}
+            }
+            resp = Response(content=body, status_code=r.status, headers=out_headers,
+                            media_type=content_type)
+    except urllib.error.HTTPError as e:
+        resp = Response(content=e.read(), status_code=e.code,
+                        media_type=e.headers.get_content_type() if e.headers else None)
+    token_value = sess.get("proxy") or sess.get("token")
+    if request.query_params.get("pt") and token_value:
+        resp.set_cookie(_RB_COOKIE, token_value, httponly=True, samesite="lax", path="/")
+    return resp
+
+
+@app.websocket("/api/rbrowser/proxy/{path:path}")
+async def rbrowser_proxy_ws(path: str, websocket: WebSocket):
+    try:
+        sess, upstream_path = _rbrowser_session_from_request(websocket, path)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    query_items = [(k, v) for k, v in websocket.query_params.multi_items() if k != "pt"]
+    query = urllib.parse.urlencode(query_items, doseq=True)
+    if sess.get("backend") == "sci":
+        url = sim_client.rbrowser_ws_url(sess["token"], upstream_path, query)
+    else:
+        url = f"ws://127.0.0.1:{sess['port']}/{upstream_path}"
+        if query:
+            url += "?" + query
+    await websocket.accept()
+    try:
+        async with websockets.connect(url, max_size=None) as upstream:  # RBrowser dir/histogram frames exceed 1 MB
+            async def client_to_upstream():
+                try:
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.get("text") is not None:
+                            await upstream.send(msg["text"])
+                        elif msg.get("bytes") is not None:
+                            await upstream.send(msg["bytes"])
+                except WebSocketDisconnect:
+                    await upstream.close()
+
+            async def upstream_to_client():
+                async for msg in upstream:
+                    if isinstance(msg, bytes):
+                        await websocket.send_bytes(msg)
+                    else:
+                        await websocket.send_text(msg)
+
+            import asyncio
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(client_to_upstream()), asyncio.create_task(upstream_to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+            for task in done:
+                task.result()
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.post("/api/rbrowser/close")

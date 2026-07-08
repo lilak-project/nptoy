@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import platform
+import secrets
 import signal
 import socket
 import subprocess
@@ -36,6 +37,7 @@ import time
 from pathlib import Path
 
 import config
+import sim_client
 import workspace
 
 # ── tunables ──────────────────────────────────────────────────────────────────
@@ -43,8 +45,9 @@ IDLE_TIMEOUT_SEC = 20 * 60      # reap an RBrowser this long after its last "ope
 _RUNTIME_DIR = Path(config.DATA_ROOT) / ".rbrowser"   # macros live here (host-readable)
 
 # ── session registry ──────────────────────────────────────────────────────────
-# user_key -> {"port": int, "key": str, "proc": Popen, "last_used": float}
+# user_key -> {"port": int, "key": str, "proxy": str, "proc": Popen, "last_used": float}
 _sessions: dict[str, dict] = {}
+_sci_tokens: set[str] = set()
 _lock = threading.Lock()
 _reaper_started = False
 
@@ -200,6 +203,14 @@ def _port_open(port: int) -> bool:
 def open_for(user_key: str) -> dict:
     """Ensure a confined RBrowser exists for this user and return its launch info.
     Reuses the live session if present (so a second .root does not spawn another)."""
+    if config.RUNNER == "sci":
+        info = sim_client.rbrowser_open(user_key)
+        token = info["token"]
+        _sci_tokens.add(token)
+        return {
+            "url": f"api/rbrowser/proxy/{token}/win1/?key={info.get('key', '')}",
+            "backend": "sci",
+        }
     _ensure_reaper()
     with _lock:
         sess = _sessions.get(user_key)
@@ -222,7 +233,8 @@ def open_for(user_key: str) -> dict:
         if not key or proc.poll() is not None:
             _kill({"proc": proc, "port": port})
             raise RuntimeError("RBrowser 시작에 실패했습니다.")
-        sess = {"port": port, "key": key, "proc": proc, "last_used": time.time()}
+        sess = {"port": port, "key": key, "proxy": secrets.token_urlsafe(24),
+                "proc": proc, "last_used": time.time()}
         _sessions[user_key] = sess
         return _info(sess)
 
@@ -237,13 +249,26 @@ def close_for(user_key: str) -> bool:
 
 
 def _info(sess: dict) -> dict:
-    # TODO(proxy): for remote deployments, return a portal-proxied path instead of
-    # the raw loopback URL (RBrowser reachable only via the nptoy backend's HTTP+WS
-    # reverse proxy). Direct loopback URL works when browser == server (local dev).
+    # RBrowser listens on the server loopback, so remote browsers must enter
+    # through nptoy's HTTP/WebSocket reverse proxy. Put the proxy token in the path
+    # because portal does not forward service cookies on proxied asset requests.
     return {
-        "url": f"http://127.0.0.1:{sess['port']}/win1/?key={sess['key']}",
+        "url": f"api/rbrowser/proxy/{sess['proxy']}/win1/?key={sess['key']}",
         "port": sess["port"],
     }
+
+
+def session_for_proxy(token: str | None) -> dict | None:
+    if not token:
+        return None
+    if token in _sci_tokens:
+        return {"backend": "sci", "token": token}
+    with _lock:
+        for sess in _sessions.values():
+            if sess.get("proxy") == token and _alive(sess):
+                sess["last_used"] = time.time()
+                return sess
+    return None
 
 
 # ── idle reaper ───────────────────────────────────────────────────────────────
