@@ -195,6 +195,12 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
         with conn() as c:
             return c.execute("SELECT 1 FROM cm_bans WHERE user_key=?", (key,)).fetchone() is not None
 
+    def chat_locked() -> bool:
+        """Room-wide chat lock (manager toggle). Managers can still post while locked."""
+        with conn() as c:
+            row = c.execute("SELECT value FROM cm_config WHERE key='chat_locked'").fetchone()
+        return bool(row and row["value"] == "1")
+
     def row_to_msg(r: sqlite3.Row, viewer_is_manager: bool) -> dict:
         m = {
             "id": r["id"], "author_key": r["author_key"], "author_name": r["author_name"],
@@ -274,7 +280,7 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             rows = c.execute("SELECT * FROM cm_messages ORDER BY id DESC LIMIT 150").fetchall()
         msgs = [row_to_msg(r, mgr) for r in reversed(rows)]
         return {"myKey": w["key"], "myRole": w["role"], "banned": is_banned(w["key"]),
-                "online": online, "messages": msgs}
+                "locked": chat_locked(), "online": online, "messages": msgs}
 
     # ── send ──────────────────────────────────────────────────────────────────
     @router.post("/messages")
@@ -282,6 +288,8 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
         w = who(user)
         if is_banned(w["key"]):
             raise HTTPException(403, "이용이 제한된 계정입니다.")
+        if chat_locked() and w["role"] != "manager":
+            raise HTTPException(403, "커뮤니티 채팅이 잠겨 있습니다.")
         body = (payload.get("body") or "").strip()
         atts = payload.get("attachments") or []
         if not body and not atts:
@@ -440,6 +448,17 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
                 c.execute("DELETE FROM cm_bans WHERE user_key=?", (key,))
         return {"ok": True}
 
+    @router.post("/lock")
+    def set_lock(payload: dict, user: dict = Depends(identity)):
+        """Lock/unlock the whole chat (커뮤니티 끄기/켜기). While locked only managers
+        may post; everyone still reads."""
+        require_manager(user)
+        locked = bool(payload.get("locked"))
+        with conn() as c:
+            c.execute("INSERT INTO cm_config(key,value) VALUES('chat_locked',?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value", ("1" if locked else "0",))
+        return {"locked": locked}
+
     # ── questions ─────────────────────────────────────────────────────────────
     @router.get("/questions")
     def questions(user: dict = Depends(identity)):
@@ -544,6 +563,23 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             c.execute("UPDATE cm_messages SET author_name=?, author_shape=? WHERE anon=1 AND real_key=?",
                       (name, shape, key))
         return {"name": name, "shape": shape}
+
+    @router.post("/anon-reroll-all")
+    def anon_reroll_all(user: dict = Depends(identity)):
+        """Manager: re-roll EVERYONE's anon name at once (익명 이름 전체 바꾸기)."""
+        require_manager(user)
+        n = 0
+        with conn() as c:
+            keys = [r["real_key"] for r in c.execute("SELECT real_key FROM cm_anon")]
+            for key in keys:
+                seed = key + ":" + uuid.uuid4().hex
+                name = _pick(seed + ":s", _SURNAMES) + _pick(seed + ":g", _GIVEN)
+                shape = _pick(seed + ":i", _ICONS)
+                c.execute("UPDATE cm_anon SET name=?, shape=? WHERE real_key=?", (name, shape, key))
+                c.execute("UPDATE cm_messages SET author_name=?, author_shape=? WHERE anon=1 AND real_key=?",
+                          (name, shape, key))
+                n += 1
+        return {"rerolled": n}
 
     # ── @mention notifications (shown in the \ drawer) ────────────────────────
     @router.get("/notifications")
