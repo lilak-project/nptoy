@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import {
   DETECTOR_BLOCKS, parseDetector, serializeDetector, fieldSpec, newBlock,
-  detectCombo, switchStark, getParam,
+  detectCombo, switchCombo, detectVariant, switchVariant, getParam,
 } from './detector.js'
 import { Field } from './formfields.jsx'
 
-const ADDABLE = ['Target', 'ATOMX', 'STARK', 'CSSU', 'Plunger', 'ASGARD']
+const ADDABLE = ['Target', 'ATOMX', 'STARK', 'CSSU', 'Coaxial_Germanium', 'Plunger', 'ASGARD']
 const defaultFor = (f) => f.default ?? (f.type === 'num'
   ? Array(f.n).fill('0').join(' ') + (f.unit ? ' ' + f.unit : '')
   : f.type === 'choice' ? f.choices[0] : '')
@@ -39,7 +39,8 @@ export default function DetectorForm({ initialText, onChange }) {
     Object.entries(set).forEach(([k, v]) => {
       const p = nb.params.find((x) => x.key === k); if (p) p.value = v; else nb.params.push({ key: k, value: v })
     }))
-  const setCombo = (bi, combo) => mutate(bi, (nb) => { nb.params = switchStark(nb, combo) })
+  const setCombo = (bi, combo) => mutate(bi, (nb) => { nb.params = switchCombo(blocks[bi].type, nb, combo) })
+  const setVariant = (bi, variant) => mutate(bi, (nb) => { nb.params = switchVariant(blocks[bi].type, nb, variant) })
   const setArg = (bi, arg) => commit(blocks.map((b, i) => (i === bi ? { ...b, arg } : b)))
   const addBlock = (type) => commit([...blocks, newBlock(type, { hasATOMX })])
   const removeBlock = (bi) => { setCollapsed(new Set()); commit(blocks.filter((_, i) => i !== bi)) }
@@ -62,7 +63,13 @@ export default function DetectorForm({ initialText, onChange }) {
   const renderBlock = (b, bi, num) => {
     const spec = DETECTOR_BLOCKS[b.type]
     const presentKeys = new Set(b.params.map((p) => p.key))
-    const addable = (spec?.fields || []).filter((f) => !presentKeys.has(f.key))
+    let addable = (spec?.fields || []).filter((f) => !presentKeys.has(f.key))
+    // for a variant block (CSSU), only offer the current shape's params (+ X/Y/Z
+    // as an alternative to POS) — not every other shape's fields.
+    if (spec?.variants) {
+      const allow = new Set([...spec.variants[detectVariant(b.type, b)].keys, 'X', 'Y', 'Z'])
+      addable = addable.filter((f) => allow.has(f.key))
+    }
     const col = collapsed.has(bi)
     return (
       <section className={`dblock ${col ? 'collapsed' : ''}`} key={bi}>
@@ -78,9 +85,15 @@ export default function DetectorForm({ initialText, onChange }) {
               title={spec.arg?.comment} onChange={(e) => setArg(bi, e.target.value)} />
           )}
           {spec?.combos && (
-            <select className="comboSel" value={detectCombo(b)}
+            <select className="comboSel" value={detectCombo(b.type, b)}
               onChange={(e) => setCombo(bi, e.target.value)} title="파라미터 조합">
               {Object.entries(spec.combos).map(([k, c]) => <option key={k} value={k}>{c.label}</option>)}
+            </select>
+          )}
+          {spec?.variants && (
+            <select className="comboSel" value={detectVariant(b.type, b)}
+              onChange={(e) => setVariant(bi, e.target.value)} title="검출기 형상 (Type)">
+              {Object.entries(spec.variants).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           )}
           <button className="solo" title="remove block" onClick={() => removeBlock(bi)}>✕</button>
@@ -104,6 +117,8 @@ export default function DetectorForm({ initialText, onChange }) {
 
           <div className="dfields">
             {b.params.map((p) => {
+              // the variant key (CSSU Type) is driven by the header selector, not an inline field
+              if (spec?.variants && p.key === spec.variantKey) return null
               const f = fieldSpec(b.type, p.key) || { key: p.key, label: p.key, type: 'text' }
               return <Field key={p.key} f={f} value={p.value}
                 onChange={(v) => setVal(bi, p.key, v)} onRemove={() => removeField(bi, p.key)} />

@@ -85,6 +85,7 @@ export const DETECTOR_BLOCKS = {
       targ: { label: 'target', keys: ['TargetMaterial', 'Pressure', 'Temperature', 'Radius', 'Z'] },
     },
     comboOrder: ['reso', 'targ', 'car2', 'cart', 'sphe', 'cyld'],   // match priority (STARK.cc)
+    comboDefault: 'cart',                                           // new blocks start cartesian
     extra: ['MotherVolume', 'Group', 'Flip', 'CsI'],                // optional, kept if present
     fields: [
       { key: 'Type', label: 'Type', type: 'choice', choices: ['X6', 'BB10', 'QQQ5'], comment: '검출기 종류' },
@@ -106,20 +107,86 @@ export const DETECTOR_BLOCKS = {
     ],
   },
 
-  // CSSU plastic scintillator bar with two cylindrical PMT photon counters (ScintPMT).
+  // CSSU is one block name with several detector shapes selected by `Type=`
+  // (NPSimulation/Detectors/CSSU/CSSU.cc): a plastic scintillator bar with PMTs
+  // (ScintPMT), a segmented gas box (GasCF4), a W1 silicon strip detector, and a cut
+  // mask. The variant selector sets Type= and swaps in that shape's parameters; every
+  // shape shares POS/Length/Width/Thickness. Length/Width map to ActiveX/ActiveY (W1)
+  // or SizeX/SizeY (GasBox/Mask) in nptool.
   CSSU: {
-    label: 'CSSU — scintillator + PMT', repeatable: true,
+    label: 'CSSU — scintillator / gas / W1 / mask', repeatable: true,
+    variantKey: 'Type', variantDefault: 'ScintillatorBar',
+    variants: {
+      ScintillatorBar: {
+        label: 'ScintillatorBar — 섬광체 + PMT',
+        keys: ['Length', 'Width', 'Thickness', 'PMTLength', 'PMTDiameter',
+          'ScintillationYield', 'AttenuationLength', 'ScintillatorRIndex'],
+      },
+      W1: {
+        label: 'W1 — 실리콘 스트립',
+        keys: ['Length', 'Width', 'Thickness', 'Strips', 'EnergyThreshold', 'ResoEnergy'],
+      },
+      GasBox: {
+        label: 'GasBox — 세그먼트 가스 챔버',
+        keys: ['Length', 'Width', 'Thickness', 'Pressure', 'StepLimit',
+          'SegmentsZ', 'SegmentGapZ', 'EnergyThreshold', 'ResoEnergy'],
+      },
+      Mask: {
+        label: 'Mask — 컷 마스크',
+        keys: ['Length', 'Width', 'Thickness', 'Material', 'CUT'],
+      },
+    },
     fields: [
-      { key: 'Type', label: 'Type', type: 'choice', choices: ['ScintillatorBar'], comment: '검출기 형상', core: true },
+      { key: 'Type', label: 'Type', type: 'choice',
+        choices: ['ScintillatorBar', 'W1', 'GasBox', 'Mask'], comment: '검출기 형상', core: true },
       num('POS', 'Position', 3, 'mm', '중심 위치 (x y z)'),
-      num('Length', 'Length', 1, 'mm', '섬광체 길이'),
-      num('Width', 'Width', 1, 'mm', '섬광체 폭'),
-      num('Thickness', 'Thickness', 1, 'mm', '섬광체 두께'),
+      num('X', 'X', 1, 'mm', 'x 위치 (POS 대신)', false),
+      num('Y', 'Y', 1, 'mm', 'y 위치 (POS 대신)', false),
+      num('Z', 'Z', 1, 'mm', 'z 위치 (POS 대신)', false),
+      num('Length', 'Length', 1, 'mm', '길이 (x, = ActiveX/SizeX)'),
+      num('Width', 'Width', 1, 'mm', '폭 (y, = ActiveY/SizeY)'),
+      num('Thickness', 'Thickness', 1, 'mm', '두께 (z)'),
+      // ScintillatorBar
       num('PMTLength', 'PMT length', 1, 'mm', 'PMT 길이'),
       num('PMTDiameter', 'PMT diameter', 1, 'mm', 'PMT 지름'),
       num('ScintillationYield', 'Scint. yield', 1, '', '광자 수율 (/MeV)'),
       num('AttenuationLength', 'Attenuation length', 1, 'mm', '광 감쇠 거리'),
       num('ScintillatorRIndex', 'Refractive index', 1, '', '섬광체 굴절률'),
+      // W1 silicon strip
+      { key: 'Strips', label: 'Strips', type: 'num', n: 1, unit: '', comment: '스트립 수 (앞/뒤 공통)', default: '16' },
+      num('EnergyThreshold', 'Energy threshold', 1, 'MeV', '에너지 임계값'),
+      num('ResoEnergy', 'Energy resolution', 1, 'keV', '에너지 분해능 (FWHM)'),
+      // GasBox
+      num('Pressure', 'Pressure', 1, '', '가스 압력 (Torr)'),
+      num('StepLimit', 'Step limit', 1, 'mm', '최대 스텝 길이'),
+      num('SegmentsZ', 'Segments Z', 1, '', 'z 방향 활성 분할 수'),
+      num('SegmentGapZ', 'Segment gap Z', 1, 'mm', '분할 사이 간격'),
+      // Mask
+      { key: 'Material', label: 'Material', type: 'material', comment: '마스크 물질' },
+      { key: 'CUT', label: 'Cut', type: 'text', default: 'SQUARE 0 0 10 10 mm',
+        comment: 'SQUARE x y dx dy unit · CIRCLE x y r unit' },
+      { key: 'CUT2', label: 'Cut 2', type: 'text', comment: '두 번째 컷 (선택)' },
+    ],
+  },
+
+  // Coaxial HPGe γ-ray detector (NPSimulation/Detectors/Coaxial_Germanium). Placed
+  // either cartesian (POS) or spherical (R/Theta/Phi); ResoEnergy/EnergyThreshold
+  // are optional response params.
+  Coaxial_Germanium: {
+    label: 'Coaxial_Germanium — HPGe γ', repeatable: true,
+    combos: {
+      sphe: { label: 'spherical (R/Theta/Phi)', keys: ['R', 'Theta', 'Phi'] },
+      cart: { label: 'cartesian (POS)', keys: ['POS'] },
+    },
+    comboOrder: ['sphe', 'cart'], comboDefault: 'sphe',
+    extra: ['ResoEnergy', 'EnergyThreshold'],
+    fields: [
+      num('R', 'R', 1, 'mm', '중심 거리 (구면)'),
+      num('Theta', 'Theta', 1, 'deg', '극각'),
+      num('Phi', 'Phi', 1, 'deg', '방위각'),
+      num('POS', 'Position', 3, 'mm', '위치 (x y z, 직교)'),
+      num('ResoEnergy', 'Energy resolution', 1, 'keV', '에너지 분해능 (FWHM)', false),
+      num('EnergyThreshold', 'Energy threshold', 1, 'MeV', '에너지 임계값', false),
     ],
   },
 
@@ -158,12 +225,15 @@ export const DETECTOR_BLOCKS = {
 // MotherVolume token the ATOMX detector file uses)
 export const ATOMX_GAS_VOLUME = 'ATOMX_gas'
 
-// which STARK combo a block currently matches (all combo keys present)
-export function detectCombo(block) {
-  const spec = DETECTOR_BLOCKS.STARK
+// which combo a block currently matches, for any type declaring `combos` (STARK,
+// Coaxial_Germanium). Prefers a combo whose keys are ALL present, else one partially
+// present, else the type's default.
+export function detectCombo(type, block) {
+  const spec = DETECTOR_BLOCKS[type]
   const present = new Set(block.params.map((p) => p.key))
   for (const k of spec.comboOrder) if (spec.combos[k].keys.every((key) => present.has(key))) return k
-  return spec.comboOrder.find((k) => spec.combos[k].keys.some((key) => present.has(key))) || 'cart'
+  return spec.comboOrder.find((k) => spec.combos[k].keys.some((key) => present.has(key)))
+    || spec.comboDefault || spec.comboOrder[0]
 }
 
 const KNOWN = new Set(Object.keys(DETECTOR_BLOCKS))
@@ -228,32 +298,74 @@ const valueForKey = (type, key) => {
   return f ? fieldDefault(f) : ''
 }
 
-// build a STARK block's params for a given combo (+ optional MotherVolume)
-export function starkParams(combo, withMother) {
-  const keys = [...DETECTOR_BLOCKS.STARK.combos[combo].keys]
-  if (withMother && !keys.includes('TargetMaterial')) keys.splice(1, 0, 'MotherVolume')
-  return keys.map((key) => ({
-    key, value: key === 'MotherVolume' ? ATOMX_GAS_VOLUME : valueForKey('STARK', key),
+// the key list for a combo. STARK optionally injects MotherVolume (so its silicon
+// sits in the ATOMX gas) — only for placement combos (not the target/reso ones).
+function comboKeys(type, combo, { hasATOMX = false, hasMother = false } = {}) {
+  const keys = [...DETECTOR_BLOCKS[type].combos[combo].keys]
+  if (type === 'STARK' && (hasATOMX || hasMother) && !keys.includes('TargetMaterial')) {
+    keys.splice(1, 0, 'MotherVolume')
+  }
+  return keys
+}
+
+// build a combo block's params (fresh)
+export function comboParams(type, combo, opts = {}) {
+  return comboKeys(type, combo, opts).map((key) => ({
+    key, value: key === 'MotherVolume' ? ATOMX_GAS_VOLUME : valueForKey(type, key),
   }))
 }
 
-// new params when switching a STARK block to another combo — preserve overlapping
-// values (Type, Z, …); add MotherVolume if it was there.
-export function switchStark(block, combo) {
-  const keys = [...DETECTOR_BLOCKS.STARK.combos[combo].keys]
+// new params when switching a block to another combo — preserve overlapping values;
+// keep MotherVolume if it was there (STARK).
+export function switchCombo(type, block, combo) {
   const hasMother = block.params.some((p) => p.key === 'MotherVolume')
-  if (hasMother && !keys.includes('TargetMaterial')) keys.splice(1, 0, 'MotherVolume')
+  const keys = comboKeys(type, combo, { hasMother })
   const old = Object.fromEntries(block.params.map((p) => [p.key, p.value]))
   return keys.map((key) => ({
-    key, value: old[key] ?? (key === 'MotherVolume' ? ATOMX_GAS_VOLUME : valueForKey('STARK', key)),
+    key, value: old[key] ?? (key === 'MotherVolume' ? ATOMX_GAS_VOLUME : valueForKey(type, key)),
   }))
 }
 
-// a fresh block. STARK starts in the `cart` combo; MotherVolume is added only when
-// an ATOMX TPC is present (opts.hasATOMX).
-export function newBlock(type, opts = {}) {
-  if (type === 'STARK') return { type, header: ['%% STARK'], params: starkParams('cart', opts.hasATOMX) }
+// ── variant blocks: one block name, several shapes chosen by a `Type=`-style param
+//    (CSSU). The variant param + POS placement are always kept; the rest come from
+//    the chosen shape. ────────────────────────────────────────────────────────────
+const variantKeys = (spec, variant) => ['POS', spec.variantKey, ...spec.variants[variant].keys]
+
+// which variant a block currently is (reads the variant param value)
+export function detectVariant(type, block) {
   const spec = DETECTOR_BLOCKS[type]
+  const v = getParam(block, spec.variantKey)
+  return spec.variants[v] ? v : spec.variantDefault
+}
+
+export function variantParams(type, variant) {
+  const spec = DETECTOR_BLOCKS[type]
+  return variantKeys(spec, variant).map((key) => ({
+    key, value: key === spec.variantKey ? variant : valueForKey(type, key),
+  }))
+}
+
+// switch a block's shape — set the variant param, keep overlapping values (POS, Length…)
+export function switchVariant(type, block, variant) {
+  const spec = DETECTOR_BLOCKS[type]
+  const old = Object.fromEntries(block.params.map((p) => [p.key, p.value]))
+  return variantKeys(spec, variant).map((key) => ({
+    key, value: key === spec.variantKey ? variant : (old[key] ?? valueForKey(type, key)),
+  }))
+}
+
+// a fresh block. Combo types start in their default combo (STARK: cart, +MotherVolume
+// when an ATOMX TPC is present); variant types start in their default shape.
+export function newBlock(type, opts = {}) {
+  const spec = DETECTOR_BLOCKS[type]
+  if (spec.combos) {
+    return { type, header: [`%% ${type}`],
+      params: comboParams(type, spec.comboDefault || spec.comboOrder[0], opts) }
+  }
+  if (spec.variants) {
+    return { type, arg: spec.arg?.default || '', header: [`%% ${type}`],
+      params: variantParams(type, spec.variantDefault) }
+  }
   const params = spec.fields.filter((f) => f.core).map((f) => ({ key: f.key, value: fieldDefault(f) }))
   return { type, arg: spec.arg?.default || '', header: [`%% ${type}`], params }
 }
