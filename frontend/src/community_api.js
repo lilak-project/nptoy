@@ -23,6 +23,7 @@ export const communityApi = {
   completed: () => req('GET', P + '/completed').then((d) => d.questions),
   complete: (id) => req('POST', P + '/complete/' + id),
   anonIdentity: () => req('GET', P + '/anon-identity'),
+  rerollAnon: () => req('POST', P + '/anon-reroll'),
   polls: () => req('GET', P + '/polls').then((d) => d.polls),
   createPoll: (p) => req('POST', P + '/polls', p),
   vote: (pid, oid, o) => req('POST', P + '/polls/' + pid + '/vote', { option_id: oid, ...(o || {}) }),

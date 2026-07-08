@@ -521,6 +521,30 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
     def anon_identity(user: dict = Depends(identity)):
         return anon_of(who(user)["key"])
 
+    @router.post("/anon-reroll")
+    def anon_reroll(user: dict = Depends(identity)):
+        """Draw a fresh random anon name/shape from the current pool for the caller,
+        replacing their stored identity, and relabel their existing anon posts so all
+        of them stay under the one (new) anon identity."""
+        key = who(user)["key"]
+        with conn() as c:
+            cur = c.execute("SELECT name FROM cm_anon WHERE real_key=?", (key,)).fetchone()
+            old = cur["name"] if cur else None
+            name = shape = None
+            for _ in range(8):   # avoid landing on the same name again when the pool allows
+                seed = key + ":" + uuid.uuid4().hex
+                nm = _pick(seed + ":s", _SURNAMES) + _pick(seed + ":g", _GIVEN)
+                if nm != old:
+                    name, shape = nm, _pick(seed + ":i", _ICONS); break
+            if name is None:     # tiny pool → accept a repeat
+                seed = key + ":" + uuid.uuid4().hex
+                name = _pick(seed + ":s", _SURNAMES) + _pick(seed + ":g", _GIVEN)
+                shape = _pick(seed + ":i", _ICONS)
+            c.execute("INSERT OR REPLACE INTO cm_anon(real_key,name,shape) VALUES(?,?,?)", (key, name, shape))
+            c.execute("UPDATE cm_messages SET author_name=?, author_shape=? WHERE anon=1 AND real_key=?",
+                      (name, shape, key))
+        return {"name": name, "shape": shape}
+
     # ── @mention notifications (shown in the \ drawer) ────────────────────────
     @router.get("/notifications")
     def list_notifications(user: dict = Depends(identity)):
