@@ -120,7 +120,7 @@ export const DETECTOR_BLOCKS = {
       ScintillatorBar: {
         label: 'ScintillatorBar — 섬광체 + PMT',
         keys: ['Length', 'Width', 'Thickness', 'PMTLength', 'PMTDiameter',
-          'ScintillationYield', 'AttenuationLength', 'ScintillatorRIndex'],
+          'ScintillationYield', 'AttenuationLength', 'ScintillatorRIndex', 'Envelope'],
       },
       W1: {
         label: 'W1 — 실리콘 스트립',
@@ -152,6 +152,8 @@ export const DETECTOR_BLOCKS = {
       num('ScintillationYield', 'Scint. yield', 1, '', '광자 수율 (/MeV)'),
       num('AttenuationLength', 'Attenuation length', 1, 'mm', '광 감쇠 거리'),
       num('ScintillatorRIndex', 'Refractive index', 1, '', '섬광체 굴절률'),
+      { key: 'Envelope', label: 'Envelope', type: 'num', n: 1, unit: 'mm', default: '50 mm',
+        comment: '진공 mother 여백 (광자 비행 공간)' },
       // W1 silicon strip
       { key: 'Strips', label: 'Strips', type: 'num', n: 1, unit: '', comment: '스트립 수 (앞/뒤 공통)', default: '16' },
       num('EnergyThreshold', 'Energy threshold', 1, 'MeV', '에너지 임계값'),
