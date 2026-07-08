@@ -394,6 +394,41 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             bans = {r["user_key"] for r in c.execute("SELECT user_key FROM cm_bans").fetchall()}
         return {"users": [{"user_key": r["k"], "name": r["n"], "banned": r["k"] in bans} for r in keys if r["k"]]}
 
+    @router.get("/user-report")
+    def user_report(user: dict = Depends(identity)):
+        """Per-real-user report for the 관리 drawer: their assigned anon name (익명 이름
+        보기) and message/question counts (통계 보기). Grouped by real_key so a user's
+        anon-posted messages count under their real identity too."""
+        require_manager(user)
+        with conn() as c:
+            counts: dict[str, dict] = {}
+            for r in c.execute("SELECT real_key AS k, kind, COUNT(*) n FROM cm_messages "
+                               "WHERE real_key IS NOT NULL GROUP BY real_key, kind"):
+                d = counts.setdefault(r["k"], {"msgs": 0, "questions": 0})
+                if r["kind"] == "question":
+                    d["questions"] += r["n"]
+                elif r["kind"] == "msg":
+                    d["msgs"] += r["n"]
+            anon = {r["real_key"]: {"name": r["name"], "shape": r["shape"]}
+                    for r in c.execute("SELECT real_key, name, shape FROM cm_anon")}
+            users = {r["key"]: {"name": r["name"], "username": r["username"]}
+                     for r in c.execute("SELECT key, name, username FROM cm_users")}
+            for r in c.execute("SELECT DISTINCT real_key AS k, real_name AS n FROM cm_messages "
+                               "WHERE real_key IS NOT NULL"):   # posters not yet in the directory
+                users.setdefault(r["k"], {"name": r["n"], "username": None})
+            bans = {r["user_key"] for r in c.execute("SELECT user_key FROM cm_bans")}
+        out = []
+        for k in set(users) | set(counts) | set(anon):
+            if not k or not str(k).startswith("u:"):   # only real portal users
+                continue
+            u = users.get(k, {}); cnt = counts.get(k, {}); an = anon.get(k, {})
+            out.append({"key": k, "name": u.get("name") or k, "username": u.get("username"),
+                        "anon_name": an.get("name"), "anon_shape": an.get("shape"),
+                        "msgs": cnt.get("msgs", 0), "questions": cnt.get("questions", 0),
+                        "banned": k in bans})
+        out.sort(key=lambda x: (x["msgs"] + x["questions"], x["name"]), reverse=True)
+        return {"users": out}
+
     @router.post("/ban")
     def ban(payload: dict, user: dict = Depends(identity)):
         require_manager(user)

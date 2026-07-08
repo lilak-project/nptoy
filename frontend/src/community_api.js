@@ -30,6 +30,7 @@ export const communityApi = {
   pollResults: (pid) => req('GET', P + '/polls/' + pid + '/results'),
   anonNames: () => req('GET', P + '/anon-names'),
   saveAnonNames: (n) => req('PUT', P + '/anon-names', n),
+  userReport: () => req('GET', P + '/user-report').then((d) => d.users || []),
   bots: () => req('GET', P + '/bots').then((d) => d.bots),
   saveBot: (b) => req('POST', P + '/bots', b),
   delBot: (name) => req('DELETE', P + '/bots/' + name),
