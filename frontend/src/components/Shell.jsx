@@ -200,7 +200,7 @@ export default function Shell() {
     setup: <InputsTab onSetupName={setProj} />,
     simulation: <SimulationTab />,
     files: <FilesTab active={tab === 'files'} />,
-    community: <Community role={me.role} onOpenFiles={() => setTab('files')} />,
+    community: <Community role={me.role} onOpenFiles={() => setTab('files')} active={tab === 'community'} />,
     set: <SettingsPage />,
   }
 

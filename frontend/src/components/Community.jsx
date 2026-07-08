@@ -8,13 +8,14 @@
 import { Community as KitCommunity } from 'lilak-ui'
 import { communityApi } from '../community_api'
 
-export default function Community({ role = 'user', onOpenFiles }) {
+export default function Community({ role = 'user', onOpenFiles, active = true }) {
   return (
     <div style={{ height: '100%', boxSizing: 'border-box', padding: 12 }}>
       <KitCommunity
         api={communityApi}
         role={role}
         onOpenFiles={onOpenFiles}
+        active={active}
         storageKey="nptoy"
         features={{ attachments: true, questions: true, anon: true, polls: true, mentions: true, moderation: true }}
       />

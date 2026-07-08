@@ -140,6 +140,7 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             "ALTER TABLE cm_messages ADD COLUMN author_username TEXT",   # portal username → avatar seed (profile match)
             "ALTER TABLE cm_messages ADD COLUMN edited_at TEXT",         # set when the author edits the message
             "ALTER TABLE cm_messages ADD COLUMN notice INTEGER DEFAULT 0",  # 관리자 공지 (pinned under the title)
+            "ALTER TABLE cm_messages ADD COLUMN author_role TEXT",          # poster's role at send time (방송 관리자만 필터)
             "ALTER TABLE cm_polls ADD COLUMN named INTEGER DEFAULT 1",   # 1=실명투표 · 0=익명투표
             "ALTER TABLE cm_votes ADD COLUMN name TEXT",                 # voter display identity (for 결과 보기)
             "ALTER TABLE cm_votes ADD COLUMN shape TEXT",
@@ -202,6 +203,8 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             "author_username": (None if r["anon"] else (r["author_username"] if "author_username" in r.keys() else None)),
             "anon": bool(r["anon"]), "body": r["body"], "kind": r["kind"], "done": bool(r["done"]),
             "notice": bool(r["notice"]) if "notice" in r.keys() else False,
+            "role": (r["author_role"] if "author_role" in r.keys() else None),  # 방송: 관리자만 필터
+
             "reply_to_id": r["reply_to_id"], "attachments": json.loads(r["attachments"] or "[]"),
             "poll_id": (r["poll_id"] if "poll_id" in r.keys() else None),
             "edited": bool(r["edited_at"]) if "edited_at" in r.keys() else False,
@@ -297,10 +300,10 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
         with conn() as c:
             cur = c.execute(
                 """INSERT INTO cm_messages(author_key,author_name,author_color,author_shape,author_username,anon,
-                   real_key,real_name,body,kind,notice,reply_to_id,attachments,created_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   real_key,real_name,body,kind,notice,author_role,reply_to_id,attachments,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (author_key, author_name, author_color, author_shape, author_username, int(anon),
-                 w["key"], w["name"], body, kind, notice, int(payload.get("reply_to_id") or 0),
+                 w["key"], w["name"], body, kind, notice, w["role"], int(payload.get("reply_to_id") or 0),
                  json.dumps(atts), _now()))
             mid = cur.lastrowid
             r = c.execute("SELECT * FROM cm_messages WHERE id=?", (mid,)).fetchone()
@@ -407,8 +410,8 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
     def questions(user: dict = Depends(identity)):
         w = who(user)
         with conn() as c:
-            # all questions stay listed here (completed ones too — flagged done)
-            rows = c.execute("SELECT * FROM cm_messages WHERE kind='question' ORDER BY id").fetchall()
+            # 완료된 질문은 완료 목록(/completed)에서만 — 여기서는 미완료만 보여준다
+            rows = c.execute("SELECT * FROM cm_messages WHERE kind='question' AND done=0 ORDER BY id").fetchall()
         return {"questions": [row_to_msg(r, w["role"] == "manager") for r in rows]}
 
     @router.get("/completed")
@@ -424,6 +427,59 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
         with conn() as c:
             c.execute("UPDATE cm_messages SET done=1 WHERE id=? AND kind='question'", (mid,))
         return {"ok": True}
+
+    # ── 방송(broadcast) settings ──────────────────────────────────────────────
+    # Global, manager-editable config for the cross-tab broadcast overlay: when a user
+    # is on another tab, new community messages pop up as profile bubbles. Stored in
+    # cm_config (one JSON blob) so every client reads the same admin-set configuration.
+    BROADCAST_DEFAULTS = {
+        "enabled": False,       # master on/off
+        "scope": "all",         # "all" | "questions"  (모든 메세지 / 질문만)
+        "managers_only": False, # 관리자 메세지만 방송
+        "plaza": False,         # 광장 모드 (우측 절반에 흩뿌리기) vs 우상단 스택
+        "max": 5,               # 방송 최대 메세지 (동시 표시)
+        "lifetime": 8,          # 방송 메세지 유지시간 (초, 0=계속)
+        "show_names": True,     # 이름 표시
+        "bubble_scale": 1.0,    # 말풍선 크기
+    }
+
+    def _broadcast_get() -> dict:
+        with conn() as c:
+            row = c.execute("SELECT value FROM cm_config WHERE key='broadcast'").fetchone()
+        cfg = dict(BROADCAST_DEFAULTS)
+        if row:
+            try:
+                cfg.update({k: v for k, v in json.loads(row["value"]).items() if k in BROADCAST_DEFAULTS})
+            except Exception:
+                pass
+        return cfg
+
+    @router.get("/broadcast-settings")
+    def broadcast_settings(user: dict = Depends(identity)):
+        # every client needs the config to know what/how to broadcast
+        return _broadcast_get()
+
+    @router.put("/broadcast-settings")
+    def save_broadcast_settings(payload: dict, user: dict = Depends(identity)):
+        require_manager(user)
+        cfg = _broadcast_get()
+        for k in BROADCAST_DEFAULTS:
+            if k in payload:
+                cfg[k] = payload[k]
+        # coerce types defensively
+        cfg["enabled"] = bool(cfg["enabled"]); cfg["managers_only"] = bool(cfg["managers_only"])
+        cfg["plaza"] = bool(cfg["plaza"]); cfg["show_names"] = bool(cfg["show_names"])
+        cfg["scope"] = "questions" if cfg["scope"] == "questions" else "all"
+        cfg["max"] = max(1, int(cfg["max"] or 1)); cfg["lifetime"] = max(0, int(cfg["lifetime"] or 0))
+        try:
+            cfg["bubble_scale"] = min(2.5, max(0.6, float(cfg["bubble_scale"] or 1)))
+        except (TypeError, ValueError):
+            cfg["bubble_scale"] = 1.0
+        with conn() as c:
+            c.execute("INSERT INTO cm_config(key,value) VALUES('broadcast',?) "
+                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (json.dumps(cfg, ensure_ascii=False),))
+        return cfg
 
     # ── anonymous identity ────────────────────────────────────────────────────
     @router.get("/anon-identity")
