@@ -450,15 +450,17 @@ export default function InputsTab({ me, onSetupName }) {
       {/* ── right pane: editor (slots), style preview, or a hint (preset closed) ── */}
       {isEditorSlot ? (
         <div className="filespanel setupbox setupeditor" ref={editorRef}>
-          <div className="fphead">
+          <div className="fphead editorhead">
             <span className="fptitle">{title}{dirty ? ' •' : ''}</span>
-            {FORM_SLOTS[active] && (
-              <div className="modetoggle">
-                <button className={mode === 'form' ? 'on' : ''} onClick={() => switchMode('form')}>form</button>
-                <button className={mode === 'text' ? 'on' : ''} onClick={() => switchMode('text')}>text</button>
-              </div>
-            )}
-            <button className="sbtn go" disabled={!dirty} onClick={save}>save</button>
+            <div className="fpctl">
+              {FORM_SLOTS[active] && (
+                <div className="modetoggle">
+                  <button className={mode === 'form' ? 'on' : ''} onClick={() => switchMode('form')}>form</button>
+                  <button className={mode === 'text' ? 'on' : ''} onClick={() => switchMode('text')}>text</button>
+                </div>
+              )}
+              <button className="sbtn go" disabled={!dirty} onClick={save}>apply</button>
+            </div>
           </div>
 
           {slot === CS ? (
