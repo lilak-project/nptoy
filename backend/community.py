@@ -125,6 +125,14 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             name TEXT PRIMARY KEY, provider TEXT, model TEXT, api_key TEXT,
             system TEXT, enabled INTEGER DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS cm_users (
+            key TEXT PRIMARY KEY, name TEXT, username TEXT
+        );
+        CREATE TABLE IF NOT EXISTS cm_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_key TEXT, from_name TEXT, message_id INTEGER,
+            body TEXT, created_at TEXT, read INTEGER DEFAULT 0
+        );
         """)
         # migrations for existing DBs (ignore "duplicate column" on re-run)
         for ddl in (
@@ -208,16 +216,58 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
             m["real_name"] = r["real_name"]
         return m
 
+    # ── mentions / notifications ──────────────────────────────────────────────
+    def remember_user(w: dict) -> None:
+        """Keep a small name↔key directory so @mentions resolve to real users."""
+        if not w["key"].startswith("u:"):
+            return
+        with conn() as c:
+            c.execute("INSERT INTO cm_users(key,name,username) VALUES(?,?,?) "
+                      "ON CONFLICT(key) DO UPDATE SET name=excluded.name, username=excluded.username",
+                      (w["key"], w["name"], w["username"]))
+
+    def notify_mentions(body: str, mid: int, from_key: str, from_name: str) -> None:
+        """Parse @name mentions and drop a notification for each matched real user
+        (skipping bots and the author). Names match a username or display name."""
+        names = {m.lower() for m in _MENTION_RE.findall(body or "")}
+        if not names:
+            return
+        with conn() as c:
+            bots = {row["name"].lower() for row in c.execute("SELECT name FROM cm_bots")}
+            targets: dict[str, str] = {}
+            for nm in names:
+                if nm in bots:
+                    continue
+                for row in c.execute("SELECT key,name FROM cm_users WHERE lower(username)=? OR lower(name)=?", (nm, nm)):
+                    if row["key"] != from_key:
+                        targets[row["key"]] = row["name"]
+            for k in targets:
+                c.execute("INSERT INTO cm_notifications(user_key,from_name,message_id,body,created_at) "
+                          "VALUES(?,?,?,?,?)", (k, from_name, mid, (body or "")[:280], _now()))
+
     # ── list / poll ───────────────────────────────────────────────────────────
     @router.get("/messages")
     def list_messages(user: dict = Depends(identity)):
         w = who(user)
+        remember_user(w)
         presence[w["key"]] = {"name": w["name"], "username": w["username"], "color": w["color"], "shape": w["shape"], "ts": time.time()}
         cutoff = time.time() - 15
         online = [{"key": k, **{x: v.get(x) for x in ("name", "username", "color", "shape")}}
                   for k, v in presence.items() if v["ts"] > cutoff]
         mgr = w["role"] == "manager"
         with conn() as c:
+            c.execute(
+                """UPDATE cm_messages
+                   SET author_name=?, author_color=?, author_shape=?, author_username=?, real_name=?
+                   WHERE anon=0 AND (author_key=? OR real_key=?)""",
+                (w["name"], w["color"], w["shape"], w["username"], w["name"], w["key"], w["key"]),
+            )
+            c.execute(
+                """UPDATE cm_votes
+                   SET name=?, shape=?, color=?, real_name=?, username=?
+                   WHERE anon=0 AND user_key=?""",
+                (w["name"], w["shape"], w["color"], w["name"], w["username"], w["key"]),
+            )
             rows = c.execute("SELECT * FROM cm_messages ORDER BY id DESC LIMIT 150").fetchall()
         msgs = [row_to_msg(r, mgr) for r in reversed(rows)]
         return {"myKey": w["key"], "myRole": w["role"], "banned": is_banned(w["key"]),
@@ -254,8 +304,10 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
                  json.dumps(atts), _now()))
             mid = cur.lastrowid
             r = c.execute("SELECT * FROM cm_messages WHERE id=?", (mid,)).fetchone()
+        remember_user(w)
         if body:
             trigger_bots(body, mid)      # @bot mentions → async-ish bot replies
+            notify_mentions(body, mid, w["key"], author_name)  # @user mentions → drawer notifications
         return row_to_msg(r, w["role"] == "manager")
 
     # ── attachments ───────────────────────────────────────────────────────────
@@ -377,6 +429,28 @@ def build_community_router(*, db_path: Path, uploads_dir: Path, identity: Callab
     @router.get("/anon-identity")
     def anon_identity(user: dict = Depends(identity)):
         return anon_of(who(user)["key"])
+
+    # ── @mention notifications (shown in the \ drawer) ────────────────────────
+    @router.get("/notifications")
+    def list_notifications(user: dict = Depends(identity)):
+        w = who(user)
+        with conn() as c:
+            rows = c.execute("SELECT id,from_name,message_id,body,created_at,read "
+                             "FROM cm_notifications WHERE user_key=? ORDER BY id DESC LIMIT 50",
+                             (w["key"],)).fetchall()
+        return {"notifications": [dict(r) for r in rows]}
+
+    @router.delete("/notifications/{nid}", status_code=204)
+    def delete_notification(nid: int, user: dict = Depends(identity)):
+        w = who(user)
+        with conn() as c:
+            c.execute("DELETE FROM cm_notifications WHERE id=? AND user_key=?", (nid, w["key"]))
+
+    @router.post("/notifications/clear", status_code=204)
+    def clear_notifications(user: dict = Depends(identity)):
+        w = who(user)
+        with conn() as c:
+            c.execute("DELETE FROM cm_notifications WHERE user_key=?", (w["key"],))
 
     # ── polls ─────────────────────────────────────────────────────────────────
     def poll_out(r: sqlite3.Row, user_key: str) -> dict:

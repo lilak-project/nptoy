@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { AppShell, useLang, Avatar } from 'lilak-ui'
 import { get, portalProfile, portalHome } from '../api'
+import { communityApi } from '../community_api'
 import { ENABLED_THEMES } from '../theme/main'
 import SettingsPage from '../pages/SettingsPage'
 import FilesTab from '../g4/FilesTab.jsx'
@@ -45,10 +46,11 @@ function statusKey(sess, ever) {
 
 export default function Shell() {
   const { t, lang } = useLang()
-  const me = portalProfile()   // SSO profile — same identity as the portal + community
+  const [me, setMe] = useState(portalProfile())   // refreshed from portal DB via /api/whoami
   const [tab, setTab] = useState("setup")
   const [sess, setSess] = useState(null)      // live simulation session (polled)
   const [proj, setProj] = useState({ name: '', run: null })  // setup name + next run number
+  const [notifs, setNotifs] = useState([])    // @mention notifications (shown in the \ drawer)
   const everRef = useRef(false)               // a session has existed this page-view
 
   useEffect(() => {
@@ -64,6 +66,112 @@ export default function Shell() {
     tick()
     const id = setInterval(tick, 1000)
     return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    const load = () => get('/api/whoami')
+      .then((d) => {
+        if (!alive) return
+        setMe({
+          name: d.name || d.username || d.email || 'guest',
+          username: d.username || '',
+          email: d.email || '',
+          role: d.role || 'user',
+          color: d.color || '',
+          shape: d.shape || '',
+        })
+      })
+      .catch(() => {})
+    load()
+    const id = setInterval(load, 10000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  // Poll @mention notifications for the \ drawer.
+  const loadNotifs = () => communityApi.notifications().then(setNotifs).catch(() => {})
+  useEffect(() => {
+    loadNotifs()
+    const id = setInterval(loadNotifs, 10000)
+    return () => clearInterval(id)
+  }, [])
+  const openNotif = (n) => {
+    setTab('community')
+    communityApi.deleteNotification(n.id).then(loadNotifs).catch(() => {})
+  }
+
+  // ── app status notifications: transient top-right toasts, also logged to the drawer.
+  //    Any component fires window CustomEvent('nptoy-notify', { detail: { text } }). ──
+  const APP_NOTES_KEY = 'nptoy-app-notes'
+  const [toasts, setToasts] = useState([])
+  const [appNotes, setAppNotes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(APP_NOTES_KEY) || '[]') } catch { return [] }
+  })
+  const noteSeq = useRef(0)
+  const persistNotes = (list) => { try { localStorage.setItem(APP_NOTES_KEY, JSON.stringify(list)) } catch {} }
+  useEffect(() => {
+    const onNote = (e) => {
+      const text = e.detail && e.detail.text
+      if (!text) return
+      const level = (e.detail && e.detail.level) || 'info'
+      const id = 'n' + (++noteSeq.current) + '_' + Date.now()
+      setToasts((t) => [...t, { id, text, level }])
+      // errors linger longer so they aren't missed
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), level === 'error' ? 6500 : 3600)
+      setAppNotes((prev) => { const next = [{ id, text, level, ts: new Date().toISOString() }, ...prev].slice(0, 50); persistNotes(next); return next })
+    }
+    window.addEventListener('nptoy-notify', onNote)
+    return () => window.removeEventListener('nptoy-notify', onNote)
+  }, [])
+  const delAppNote = (id) => setAppNotes((prev) => { const next = prev.filter((n) => n.id !== id); persistNotes(next); return next })
+  const clearAllNotes = () => {
+    setAppNotes([]); persistNotes([])
+    communityApi.clearNotifications().then(loadNotifs).catch(() => {})
+  }
+
+  // Merge @mention notifications + app status messages, newest first.
+  const mergedNotes = [
+    ...notifs.map((n) => ({ key: 'c' + n.id, ts: n.created_at || '', title: `@${n.from_name} 님이 멘션했습니다`,
+      body: n.body, onClick: () => openNotif(n) })),
+    ...appNotes.map((n) => ({ key: n.id, ts: n.ts, title: n.text, body: '', level: n.level, onDel: () => delAppNote(n.id) })),
+  ].sort((a, b) => (a.ts < b.ts ? 1 : -1))
+
+  const notifNode = mergedNotes.length ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {mergedNotes.map((n) => (
+        <div key={n.key} onClick={n.onClick}
+          style={{ position: 'relative', textAlign: 'left', border: '1px solid var(--nav-border)', background: 'var(--nav-accent)',
+            color: 'var(--nav-text)', borderRadius: 8, padding: '8px 10px', cursor: n.onClick ? 'pointer' : 'default',
+            borderLeft: n.level === 'error' ? '3px solid #dc2626' : undefined,
+            display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 'var(--fs-small, 12px)', fontWeight: 600, paddingRight: 16 }}>{n.title}</span>
+          {n.body && <span style={{ fontSize: 'var(--fs-tiny, 11px)', color: 'var(--nav-text-muted)', overflow: 'hidden',
+            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</span>}
+          {n.onDel && <button onClick={(e) => { e.stopPropagation(); n.onDel() }} title="지우기"
+            style={{ position: 'absolute', top: 4, right: 6, border: 'none', background: 'transparent',
+              color: 'var(--nav-text-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>}
+        </div>
+      ))}
+      <button onClick={clearAllNotes}
+        style={{ alignSelf: 'flex-start', marginTop: 2, border: 'none', background: 'transparent',
+          color: 'var(--nav-text-muted)', cursor: 'pointer', fontSize: 'var(--fs-tiny, 11px)' }}>모두 지우기</button>
+    </div>
+  ) : null
+
+  // Command mode: pressing Esc while typing in a field blurs it, so the global
+  // tab keys ([ ]) and each tab's number-key menu shortcuts take over — the same
+  // "type → Esc → command mode" flow across every tab.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      const el = document.activeElement
+      const tag = el && el.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el && el.isContentEditable)) {
+        el.blur()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const tabs = TABS.map((x) => ({ id: x.id, label: t('tab_' + x.id), icon: x.icon }))
@@ -97,27 +205,53 @@ export default function Shell() {
   }
 
   return (
-    <AppShell
-      brand={lang === 'ko' ? t('brand') : 'lilak'}
-      service={t('svc_name')}
-      tabs={tabs}
-      active={tab}
-      onTab={setTab}
-      themes={ENABLED_THEMES}
-      status={status}
-      labels={labels}
-      commandBar={false}
-      accountName={me.name}
-      accountMeta={me.email}
-      accountIcon={false}   /* top bar shows the id only (no avatar) */
-      accountAvatar={<Avatar icon={me.shape} color={me.color} seed={me.email || me.name} size={46} />}
-      onExit={() => { window.location.href = portalHome() }}
-      exitLabel={t('exit_portal')}
-    >
-      {/* Keep every tab mounted (display toggle) so page state survives switches. */}
-      {TABS.map(({ id }) => (
-        <div key={id} style={{ height: '100%', display: tab === id ? 'block' : 'none' }}>{PAGES[id]}</div>
-      ))}
-    </AppShell>
+    <>
+      <AppShell
+        brand={lang === 'ko' ? t('brand') : 'lilak'}
+        service={t('svc_name')}
+        tabs={tabs}
+        active={tab}
+        onTab={setTab}
+        themes={ENABLED_THEMES}
+        status={status}
+        labels={labels}
+        notifications={notifNode}
+        commandBar={false}
+        accountName={me.name}
+        accountMeta={me.email}
+        accountIcon={false}   /* top bar shows the id only (no avatar) */
+        accountAvatar={<Avatar icon={me.shape} color={me.color} seed={me.username || me.email || me.name} size={46} />}
+        onExit={() => { window.location.href = portalHome() }}
+        exitLabel={t('exit_portal')}
+      >
+        {/* Keep every tab mounted (display toggle) so page state survives switches. */}
+        {TABS.map(({ id }) => (
+          <div key={id} style={{ height: '100%', display: tab === id ? 'block' : 'none' }}>{PAGES[id]}</div>
+        ))}
+      </AppShell>
+
+      {/* transient status toasts — top-right, just under the account button */}
+      <div style={{ position: 'fixed', top: 58, right: 16, zIndex: 1000, display: 'flex', flexDirection: 'column',
+        gap: 8, alignItems: 'flex-end', pointerEvents: 'none' }}>
+        {toasts.map((tst) => {
+          const err = tst.level === 'error'
+          return (
+            <div key={tst.id} style={{ pointerEvents: 'auto', maxWidth: 360, display: 'flex', alignItems: 'flex-start', gap: 8,
+              background: 'var(--surface, #fff)', color: err ? '#dc2626' : 'var(--text-primary, #1a1a1a)',
+              border: err ? '1.5px solid #dc2626' : '1px solid var(--border-default, #ddd)',
+              borderLeft: err ? '5px solid #dc2626' : '1px solid var(--border-default, #ddd)', borderRadius: 10,
+              padding: err ? '11px 15px' : '9px 13px', fontWeight: err ? 600 : 400,
+              boxShadow: err ? '0 8px 28px rgba(220,38,38,0.34)' : '0 6px 20px rgba(0,0,0,0.16)',
+              fontSize: 13, lineHeight: 1.4,
+              animation: err ? 'nptoastin .16s ease-out, nptoastshake .34s ease-out .16s' : 'nptoastin .16s ease-out' }}>
+              {err && <span style={{ flex: 'none', fontSize: 15, lineHeight: 1.25 }}>⚠️</span>}
+              <span>{tst.text}</span>
+            </div>
+          )
+        })}
+      </div>
+      <style>{'@keyframes nptoastin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}'
+        + '@keyframes nptoastshake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}'}</style>
+    </>
   )
 }

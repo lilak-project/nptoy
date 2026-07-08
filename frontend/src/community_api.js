@@ -33,4 +33,7 @@ export const communityApi = {
   bots: () => req('GET', P + '/bots').then((d) => d.bots),
   saveBot: (b) => req('POST', P + '/bots', b),
   delBot: (name) => req('DELETE', P + '/bots/' + name),
+  notifications: () => req('GET', P + '/notifications').then((d) => d.notifications || []),
+  deleteNotification: (id) => req('DELETE', P + '/notifications/' + id),
+  clearNotifications: () => req('POST', P + '/notifications/clear'),
 }
