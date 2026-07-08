@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { PHYSICS_SCHEMA, parsePhysics, serializePhysics, control } from './physics.js'
 import { Field } from './formfields.jsx'
+import PhysicsManual from './PhysicsManual.jsx'
 
 // PhysicsListOption.txt form: choice/number options up top, the many 0/1 physics
 // toggles as a checkbox grid. Comment/blank lines are preserved untouched.
@@ -46,6 +47,8 @@ export default function PhysicsForm({ initialText, onChange }) {
           ))}
         </div>
       </section>
+
+      <PhysicsManual />
     </div>
   )
 }
