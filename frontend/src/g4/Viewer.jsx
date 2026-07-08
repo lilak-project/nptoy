@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, GizmoHelper, GizmoViewport, Html, PerspectiveCamera, OrthographicCamera } from '@react-three/drei'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
@@ -382,6 +382,155 @@ function Tracks({ tracks, styles }) {
   )
 }
 
+// Time-ordered track animation. Draws each track only up to the current clock time T,
+// interpolating the partial last segment so tracks grow SMOOTHLY (not point-by-point
+// jumps). The clock runs inside useFrame (no React re-render per frame → 60fps); the
+// panel controls it through `ctlRef` (seek / step-to-next-point / progress) and reactive
+// `playing` / `duration` props. `tracks`: [{ points:[[x,y,z]], times:[ns], color }].
+function AnimatedTracks({ tracks, playing, duration, ctlRef, onDone,
+  emax, pointStyle, pointSize, ortho, showEdep }) {
+  const built = useMemo(() => {
+    let maxVerts = 0, tMin = Infinity, tMax = -Infinity
+    // colour for an energy-deposit dot (mirror EdepPoints: solid, or an energy colormap)
+    const solid = pointStyle && pointStyle.mode === 'solid'
+    const lo = pointStyle && pointStyle.low != null ? pointStyle.low : 0
+    const hi = pointStyle && pointStyle.high != null ? pointStyle.high : (emax || 1)
+    const span = (hi - lo) || 1
+    const sc = solid ? new THREE.Color((pointStyle && pointStyle.color) || '#ff3b30') : null
+    const eds = []   // {p:[x,y,z], t, c:[r,g,b]} for every point that deposits energy
+    const items = tracks.map((t) => {
+      const pts = t.points || []
+      const tm = (t.times && t.times.length === pts.length) ? t.times : pts.map((_, i) => i)
+      const de = (t.edeps && t.edeps.length === pts.length) ? t.edeps : null
+      maxVerts += Math.max(0, pts.length - 1) * 2
+      if (tm.length) { tMin = Math.min(tMin, tm[0]); tMax = Math.max(tMax, tm[tm.length - 1]) }
+      if (de) for (let i = 0; i < pts.length; i++) {
+        if (de[i] > 0) {
+          const tt = Math.min(1, Math.max(0, (de[i] - lo) / span))
+          eds.push({ p: pts[i], t: tm[i], c: solid ? [sc.r, sc.g, sc.b] : colormap(tt) })
+        }
+      }
+      return { pts, tm, col: new THREE.Color(t.color || '#88aacc') }
+    })
+    if (!isFinite(tMin)) { tMin = 0; tMax = 1 }
+    if (tMax <= tMin) tMax = tMin + 1
+    const uniq = Array.from(new Set(items.flatMap((it) => it.tm))).sort((a, b) => a - b)
+    const geom = new THREE.BufferGeometry()
+    const pos = new Float32Array(Math.max(6, maxVerts * 3))
+    const col = new Float32Array(Math.max(6, maxVerts * 3))
+    geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    geom.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    geom.setDrawRange(0, 0)
+    // energy points, pre-sorted by time so "visible so far" is just a draw-range count
+    eds.sort((a, b) => a.t - b.t)
+    const edN = eds.length
+    const edTimes = new Float64Array(edN)
+    const edGeom = new THREE.BufferGeometry()
+    const edPos = new Float32Array(Math.max(3, edN * 3))
+    const edCol = new Float32Array(Math.max(3, edN * 3))
+    eds.forEach((d, i) => {
+      edTimes[i] = d.t
+      edPos[i * 3] = d.p[0]; edPos[i * 3 + 1] = d.p[1]; edPos[i * 3 + 2] = d.p[2]
+      edCol[i * 3] = d.c[0]; edCol[i * 3 + 1] = d.c[1]; edCol[i * 3 + 2] = d.c[2]
+    })
+    edGeom.setAttribute('position', new THREE.BufferAttribute(edPos, 3))
+    edGeom.setAttribute('color', new THREE.BufferAttribute(edCol, 3))
+    edGeom.setDrawRange(0, 0)
+    return { items, tMin, tMax, uniq, geom, pos, col, edGeom, edTimes, edN }
+  }, [tracks, emax, pointStyle])
+
+  const uRef = useRef(1)         // normalized clock 0..1 — starts FULL (tracks visible)
+  const lastU = useRef(-1)
+  const doneRef = useRef(false)
+  const playingRef = useRef(playing); playingRef.current = playing
+  const durRef = useRef(duration); durRef.current = duration
+  // New track set (new run / visibility change): show it fully unless we're mid-play,
+  // so tracks are always on screen except during an active play-through.
+  useEffect(() => { if (!playingRef.current) { uRef.current = 1; lastU.current = -1 } }, [built])
+
+  const paint = (u) => {
+    const { items, tMin, tMax, pos, col, geom, edGeom, edTimes, edN } = built
+    const T = tMin + u * (tMax - tMin)
+    let v = 0
+    for (const it of items) {
+      const { pts, tm, col: c } = it
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const t0 = tm[i], t1 = tm[i + 1]
+        if (t0 > T) break                              // this + later segments are future
+        const a = pts[i], b = pts[i + 1]
+        let bx = b[0], by = b[1], bz = b[2]
+        if (t1 > T) {                                  // interpolate the partial segment
+          const f = t1 > t0 ? (T - t0) / (t1 - t0) : 1
+          bx = a[0] + (b[0] - a[0]) * f
+          by = a[1] + (b[1] - a[1]) * f
+          bz = a[2] + (b[2] - a[2]) * f
+        }
+        pos[v * 3] = a[0]; pos[v * 3 + 1] = a[1]; pos[v * 3 + 2] = a[2]
+        col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b; v++
+        pos[v * 3] = bx; pos[v * 3 + 1] = by; pos[v * 3 + 2] = bz
+        col[v * 3] = c.r; col[v * 3 + 1] = c.g; col[v * 3 + 2] = c.b; v++
+        if (t1 > T) break
+      }
+    }
+    geom.attributes.position.needsUpdate = true
+    geom.attributes.color.needsUpdate = true
+    geom.setDrawRange(0, v)
+    // energy dots: reveal every one whose time has been reached (edTimes sorted asc)
+    let loI = 0, hiI = edN
+    while (loI < hiI) { const mid = (loI + hiI) >> 1; if (edTimes[mid] <= T) loI = mid + 1; else hiI = mid }
+    edGeom.setDrawRange(0, loI)
+  }
+
+  useFrame((_, dt) => {
+    let u = uRef.current
+    if (playingRef.current) {
+      u = Math.min(1, u + dt / Math.max(0.01, durRef.current))
+      uRef.current = u
+      if (u >= 1) { if (!doneRef.current) { doneRef.current = true; onDone && onDone() } }
+      else doneRef.current = false
+    }
+    if (u !== lastU.current) { lastU.current = u; paint(u) }
+  })
+
+  useEffect(() => {
+    if (!ctlRef) return
+    ctlRef.current = {
+      getProgress: () => uRef.current,
+      seek: (u01) => { uRef.current = Math.min(1, Math.max(0, u01)); doneRef.current = false },
+      stepPoint: (dir) => {
+        const { uniq, tMin, tMax } = built
+        const span = tMax - tMin
+        const T = tMin + uRef.current * span
+        let target = dir > 0 ? uniq.find((x) => x > T + 1e-9)
+          : uniq.filter((x) => x < T - 1e-9).pop()
+        if (target == null) target = dir > 0 ? tMax : tMin
+        uRef.current = span > 0 ? Math.min(1, Math.max(0, (target - tMin) / span)) : (dir > 0 ? 1 : 0)
+        doneRef.current = false
+      },
+    }
+    return () => { if (ctlRef) ctlRef.current = null }
+  }, [built, ctlRef])
+
+  useEffect(() => () => { built.geom.dispose(); built.edGeom.dispose() }, [built])
+
+  const round = pointStyle && pointStyle.shape === 'circle'
+  const psize = pointSize || 0.5
+  return (
+    <>
+      <lineSegments geometry={built.geom}>
+        <lineBasicMaterial vertexColors />
+      </lineSegments>
+      {showEdep && built.edN > 0 && (
+        <points geometry={built.edGeom}>
+          <pointsMaterial vertexColors sizeAttenuation={!ortho}
+            size={ortho ? Math.max(3, psize * 6) : psize}
+            map={round ? CIRCLE_TEX : null} alphaTest={round ? 0.5 : 0} transparent={round} />
+        </points>
+      )}
+    </>
+  )
+}
+
 // A soft-edged white disc texture → circular (round) points when used as the
 // pointsMaterial `map` (with alphaTest to punch out the square corners).
 const CIRCLE_TEX = (() => {
@@ -468,6 +617,7 @@ function CaptureRig({ apiRef, center, camPos, rollRef }) {
     if (!apiRef) return
     let raf = null
     let rollRaf = null   // separate handle so a content-roll and a camera glide can co-exist
+    let clipRec = null   // MediaRecorder for the track-animation clip (started/stopped by the panel)
     const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2)
     // Slerp the roll group's quaternion to a target orientation over ~ms.
     const animateGroupTo = (qTarget, ms = 350) => {
@@ -556,6 +706,37 @@ function CaptureRig({ apiRef, center, camPos, rollRef }) {
         a.href = gl.domElement.toDataURL('image/png')
         a.download = 'nptoy.png'; a.click()
       },
+      // Start recording the live canvas to a video file. Unlike recordTurntable this
+      // does NOT drive the camera — the tracking panel advances the animation while
+      // this captures each rendered frame; call recordStop() when the animation ends.
+      recordStart({ onDone } = {}) {
+        const el = gl.domElement
+        if (typeof el.captureStream !== 'function' || !window.MediaRecorder) {
+          onDone && onDone('브라우저가 녹화를 지원하지 않습니다'); return false
+        }
+        const mime = pickMime()
+        const px = el.width * el.height
+        const bitrate = Math.min(40_000_000, Math.max(12_000_000, Math.round(px * 0.5) * 30))
+        const opts = { videoBitsPerSecond: bitrate, ...(mime ? { mimeType: mime } : {}) }
+        try { clipRec = new MediaRecorder(el.captureStream(30), opts) }
+        catch { onDone && onDone('녹화 시작 실패'); return false }
+        const chunks = []
+        clipRec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+        clipRec.onstop = () => {
+          const blob = new Blob(chunks, { type: chunks[0]?.type || 'video/webm' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url; a.download = 'nptoy-tracks.' + (mime.includes('mp4') ? 'mp4' : 'webm'); a.click()
+          setTimeout(() => URL.revokeObjectURL(url), 3000)
+          onDone && onDone()
+        }
+        clipRec.start()
+        return true
+      },
+      recordStop() {
+        if (clipRec && clipRec.state !== 'inactive') setTimeout(() => clipRec.stop(), 150)
+        clipRec = null
+      },
       recordTurntable({ axis = 'y', seconds = 6, onProgress, onDone } = {}) {
         const el = gl.domElement
         if (typeof el.captureStream !== 'function' || !window.MediaRecorder) {
@@ -605,6 +786,7 @@ function CaptureRig({ apiRef, center, camPos, rollRef }) {
     return () => {
       if (raf) cancelAnimationFrame(raf)
       if (rollRaf) cancelAnimationFrame(rollRaf)
+      if (clipRec && clipRec.state !== 'inactive') { try { clipRec.stop() } catch {} }
       if (apiRef) apiRef.current = null
     }
   }, [gl, scene, camera, controls, center, camPos, rollRef])
@@ -624,7 +806,11 @@ function Cameras({ ortho, initPos, target, radius }) {
   return <PerspectiveCamera makeDefault position={initPos} fov={42} near={0.1} far={radius * 60} />
 }
 
-export default function Viewer({ geometry, event, show, hidden, styles, trackStyles, pointStyle, ortho, bgColor, controlsRef, apiRef }) {
+export default function Viewer({ geometry, event, show, hidden, styles, trackStyles, pointStyle, ortho, bgColor, controlsRef, apiRef,
+  animTracks, animPlaying, animDuration, animCtlRef, onAnimDone }) {
+  // keep the latest onAnimDone reachable from AnimatedTracks' useFrame loop
+  const animDoneRef = useRef()
+  animDoneRef.current = onAnimDone
   const { center, radius } = useMemo(() => fit(geometry), [geometry])
   const d = radius * 2.4
   const initCamPos = useMemo(() => [center[0] + d * 0.7, center[1] + d * 0.55, center[2] + d], [center, d])
@@ -654,8 +840,14 @@ export default function Viewer({ geometry, event, show, hidden, styles, trackSty
             <Geometry geometry={geometry} hidden={hidden} styles={styles} />
             <Solids geometry={geometry} hidden={hidden} styles={styles} />
             <Labels geometry={geometry} hidden={hidden} styles={styles} />
-            {show.tracks && <Tracks tracks={event.tracks} styles={trackStyles} />}
-            {show.edep && event.edep.length > 0 && (
+            {show.tracks && (animTracks
+              ? <AnimatedTracks tracks={animTracks} playing={!!animPlaying} duration={animDuration || 0.4}
+                  ctlRef={animCtlRef} onDone={() => animDoneRef.current && animDoneRef.current()}
+                  emax={event.meta.energy_max} pointStyle={pointStyle} pointSize={show.pointSize}
+                  ortho={ortho} showEdep={show.edep} />
+              : <Tracks tracks={event.tracks} styles={trackStyles} />)}
+            {/* static energy points — hidden during the animation, which reveals them in time */}
+            {show.edep && !animTracks && event.edep.length > 0 && (
               <EdepPoints edep={event.edep} emax={event.meta.energy_max} size={show.pointSize}
                 pointStyle={pointStyle} ortho={ortho} />
             )}

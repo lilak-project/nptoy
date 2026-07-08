@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react'
-import { Gauge, Terminal, Stack, SlidersHorizontal, Path, Play, Stop, Lightning } from '@phosphor-icons/react'
+import { Gauge, Terminal, Stack, SlidersHorizontal, Path, Play, Stop, Lightning, FilmStrip } from '@phosphor-icons/react'
 import { ColorPicker } from 'lilak-ui'
 import Session from './Session.jsx'
 import StylePresets from './StylePresets.jsx'
@@ -14,6 +14,7 @@ const PANELS = [
   { key: 'session', label: 'session', Icon: Terminal },
   { key: 'volumes', label: 'volumes', Icon: Stack },
   { key: 'tracks', label: 'tracks', Icon: Path },
+  { key: 'animation', label: 'animation', Icon: FilmStrip },
   { key: 'display', label: 'display', Icon: SlidersHorizontal },
 ]
 
@@ -87,6 +88,24 @@ import { fetchJobScene, sessionScene, outputsScene } from './api.js'
 
 const JOB_ID = new URLSearchParams(location.search).get('job')
 const RUN_ID = new URLSearchParams(location.search).get('run')
+
+// Whether this browser can create a WebGL context at all. three.js/r3f create the
+// context asynchronously and swallow the failure (logging "WebGL context could not
+// be created"), so the ViewerBoundary never catches it and the canvas just stays
+// blank. Probe once up front so we can show actionable guidance instead of a silent
+// blank screen when the GPU / hardware acceleration is off. Cached — repeated probes
+// would leak throw-away contexts.
+let _webglOK
+function webglSupported() {
+  if (_webglOK !== undefined) return _webglOK
+  try {
+    const c = document.createElement('canvas')
+    _webglOK = !!(c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl'))
+  } catch {
+    _webglOK = false
+  }
+  return _webglOK
+}
 const EMPTY_EVENT = { tracks: [], edep: [], meta: { n_events: 0, n_points: 0, energy_max: 0 } }
 const swatch = (c) => (c ? `rgb(${c.map((v) => Math.round(v * 255)).join(',')})` : '#888')
 
@@ -135,6 +154,7 @@ export default function SimulationTab() {
   const [hidden, setHidden] = useState(() => new Set())
   const [collapsed, setCollapsed] = useState(() => new Set())   // volume tree nodes
   const [active, setActive] = useState(null)        // open dock panel (null = nothing open on entry)
+  const [sessWide, setSessWide] = useState(false)   // session panel stretched full-width (log spread out)
   const [styles, setStyles] = useState({})          // per-name display overrides
   const [styleFor, setStyleFor] = useState(null)    // which name's style editor is open
   const [showPresets, setShowPresets] = useState(false)  // style-preset panel open
@@ -142,6 +162,29 @@ export default function SimulationTab() {
   const [trackGroupStyles, setTrackGroupStyles] = useState({})  // per-group overrides
   const [trackGroup, setTrackGroup] = useState('species')  // 'species' | 'event'
   const [trackCol, setTrackCol] = useState(() => new Set())     // collapsed track groups
+  // tracking-animation: grow the CURRENTLY-VISIBLE tracks in true time order (smoothly).
+  const [animPlaying, setAnimPlaying] = useState(false)
+  const [animMode, setAnimMode] = useState('dur')      // 'dur' = fixed duration | 'scale' = real-time ×
+  const [animDur, setAnimDur] = useState(8)            // fixed mode: total play-through seconds (1–30)
+  const [animNsScale, setAnimNsScale] = useState(2)    // scale mode: real seconds per recorded ns
+  const [animRec, setAnimRec] = useState(false)        // recording to a video
+  const animCtl = useRef(null)                          // imperative handle from AnimatedTracks
+  const progRef = useRef(null)                          // <input> progress slider (uncontrolled)
+  const progLabRef = useRef(null)                       // progress % label
+
+  // Bridge the current viewer style to the Setup tab's preset save/load. Setup is a
+  // sibling tab (both stay mounted), so we publish {styles, hidden} on every change
+  // and apply an incoming blob when a preset carrying a style is loaded.
+  useEffect(() => { window.__nptoyStyle = { styles, hidden: [...hidden] } }, [styles, hidden])
+  useEffect(() => {
+    const onApply = (e) => {
+      const d = e.detail || {}
+      setStyles(d.styles || {})
+      setHidden(new Set(d.hidden || []))
+    }
+    window.addEventListener('nptoy-style-apply', onApply)
+    return () => window.removeEventListener('nptoy-style-apply', onApply)
+  }, [])
   const [trackFor, setTrackFor] = useState(null)         // which track / group editor is open
   const [pointStyle, setPointStyle] = useState({ mode: 'solid', color: '#e5a9a9' })  // bulk edep style
   const [trackPage, setTrackPage] = useState(0)         // which page of tracks is drawn
@@ -199,6 +242,74 @@ export default function SimulationTab() {
     for (const t of event.tracks) m[trackKey(t)] = effTrack(t)
     return m
   }, [event.tracks, trackStyles, trackGroupStyles, trackGroup])
+
+  // ── tracking animation ──────────────────────────────────────────────────────
+  const animOn = active === 'animation'
+  // The tracks fed to the animation: whatever tracks are currently VISIBLE (the ones
+  // the user chose to keep in the tracks panel), each carrying its per-point times
+  // (real Geant4 time when the stream provides it, else recorded order).
+  const animTracks = useMemo(() => {
+    if (!animOn) return null
+    const out = []
+    for (const t of event.tracks) {
+      const st = resolvedTracks[trackKey(t)]
+      if (st && st.hidden) continue
+      out.push({ points: t.points, times: t.times, edeps: t.edeps, color: (st && st.color) || '#88aacc' })
+    }
+    return out
+  }, [animOn, event.tracks, resolvedTracks])
+  // Recorded time span (ns) of the visible tracks — drives the real-time-scale mode.
+  const animSpanNs = useMemo(() => {
+    let lo = Infinity, hi = -Infinity
+    for (const t of (animTracks || [])) {
+      const tm = (t.times && t.times.length === t.points.length) ? t.times : t.points.map((_, i) => i)
+      if (tm.length) { lo = Math.min(lo, tm[0]); hi = Math.max(hi, tm[tm.length - 1]) }
+    }
+    return (isFinite(lo) && hi > lo) ? hi - lo : 0
+  }, [animTracks])
+  // Effective real playback duration handed to the viewer: a fixed total, or a real-time
+  // multiple of the recorded span (X real seconds per recorded ns), clamped to sane limits.
+  const animDuration = animMode === 'scale'
+    ? Math.min(120, Math.max(0.2, animSpanNs * animNsScale))
+    : animDur
+  // Opening the tracking panel makes sure tracks are visible; leaving it stops playback.
+  useEffect(() => {
+    if (animOn) setShow((s) => (s.tracks ? s : { ...s, tracks: true }))
+    else { setAnimPlaying(false); viewerApi.current?.recordStop?.(); setAnimRec(false) }
+  }, [animOn])   // eslint-disable-line react-hooks/exhaustive-deps
+  // While the panel is open, mirror the animation clock into the (uncontrolled) slider
+  // + % label via rAF — so playback stays 60fps smooth without re-rendering React.
+  useEffect(() => {
+    if (!animOn) return
+    let raf
+    const tick = () => {
+      const p = animCtl.current?.getProgress?.()
+      if (p != null) {
+        if (progRef.current && document.activeElement !== progRef.current)
+          progRef.current.value = String(Math.round(p * 1000))
+        if (progLabRef.current) progLabRef.current.textContent = Math.round(p * 100) + '%'
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [animOn])
+  const animHasTracks = !!(animTracks && animTracks.length)
+  const animPlay = () => {
+    if (!animHasTracks) return
+    if ((animCtl.current?.getProgress?.() ?? 0) >= 1) animCtl.current?.seek?.(0)
+    setAnimPlaying(true)
+  }
+  const animStepPt = (d) => { setAnimPlaying(false); animCtl.current?.stepPoint?.(d) }
+  const animSeek = (v) => { setAnimPlaying(false); animCtl.current?.seek?.(v / 1000) }
+  const handleAnimDone = () => { setAnimPlaying(false); viewerApi.current?.recordStop?.(); setAnimRec(false) }
+  const animRecord = () => {
+    if (!animHasTracks || !viewerApi.current) return
+    const ok = viewerApi.current.recordStart?.({ onDone: (err) => { if (err) setError(err) } })
+    if (ok === false) return
+    animCtl.current?.seek?.(0); setAnimRec(true); setAnimPlaying(true)
+  }
+  const animRecStop = () => { setAnimPlaying(false); viewerApi.current?.recordStop?.(); setAnimRec(false) }
   // tracks grouped for the tree (beam group first in species mode)
   const trackGroups = useMemo(() => {
     const m = new Map()
@@ -285,13 +396,19 @@ export default function SimulationTab() {
       return
     }
     let alive = true
+    let timer = null
+    // Serialize polls: schedule the NEXT fetch only after the current one settles, so a
+    // heavy scene (thousands of tracks) can't pile up dozens of overlapping requests
+    // (which queue behind the browser's 6-connection limit and delay page changes / 502).
+    // On a page/size change this effect re-runs: the old loop is cancelled and the first
+    // new tick fetches the new page immediately, so paging applies right away.
     const tick = async () => {
       try { const s = await sessionScene(from, count); if (alive) applyScene(s) }
       catch (e) { if (alive && e.status === 409 && !geomSigRef.current) setLoaded(false) }
+      finally { if (alive) timer = setTimeout(tick, 1200) }
     }
     tick()
-    const t = setInterval(tick, 1200)
-    return () => { alive = false; clearInterval(t) }
+    return () => { alive = false; if (timer) clearTimeout(timer) }
   }, [page, trackPageSize])
 
   // Simulation-tab keyboard shortcuts. Only act when this tab is actually on-screen
@@ -467,12 +584,26 @@ export default function SimulationTab() {
   return (
     <div className={`stage ${isDarkHex(bgColor) ? 'darkui' : ''} ${clearGlass ? 'clearglass' : ''}`} ref={stageRef}
       style={{ '--glass-panel': glass, '--glass-rail': +(glass * 0.72).toFixed(2), '--glass-rgb': rgbCss(bgColor) }}>
-      {hasScene ? (
+      {!webglSupported() ? (
+        // Scene data is fine (geometry/tracks loaded), but the browser can't create a
+        // WebGL context → the 3D canvas would render blank. Tell the user how to fix it.
+        <div className="placeholder viewererr">
+          <div className="vetitle">3D 뷰어를 표시할 수 없습니다 (WebGL 사용 불가)</div>
+          <div className="vemsg">브라우저에서 WebGL 컨텍스트를 만들지 못했습니다. 시뮬레이션·형상 데이터는 정상이며, 3D 렌더링만 막혀 있습니다.</div>
+          <div className="dnote">
+            1. Chrome을 완전히 종료 후 다시 실행하세요 (GPU 프로세스 재시작).<br />
+            2. <b>chrome://settings/system</b> → “그래픽 가속 사용”을 켜고 재실행하세요.<br />
+            3. <b>chrome://gpu</b> 에서 WebGL 상태를 확인하세요 (원격/헤드리스 환경은 GPU가 없을 수 있습니다).
+          </div>
+        </div>
+      ) : hasScene ? (
         <ViewerBoundary>
           <Suspense fallback={<div className="placeholder">3D 뷰어 로딩…</div>}>
             <Viewer geometry={geometry} event={event} show={show} ortho={ortho} bgColor={bgColor}
               hidden={hidden} styles={styles} trackStyles={resolvedTracks} pointStyle={pointStyle}
-              controlsRef={controlsRef} apiRef={viewerApi} />
+              controlsRef={controlsRef} apiRef={viewerApi}
+              animTracks={animTracks} animPlaying={animPlaying} animDuration={animDuration}
+              animCtlRef={animCtl} onAnimDone={handleAnimDone} />
           </Suspense>
         </ViewerBoundary>
       ) : (
@@ -662,6 +793,60 @@ export default function SimulationTab() {
                 </div>
               </div>
             ) : <div className="dnote">아직 트랙이 없습니다 — session에서 run을 실행하세요.</div>)}
+            {active === 'animation' && (animHasTracks ? (
+              <div className="animpanel">
+                <div className="strow"><span>표시 중인 트랙</span><b>{animTracks.length}개</b></div>
+                <div className="dnote">tracks 패널에서 <b>남긴 트랙</b>을 시작점→끝점으로
+                  {event.meta.has_time ? ' 실제 시간(ns) 순서로' : ' 기록 순서로'} 부드럽게 이어 그립니다.
+                  재생이 끝나면 트랙은 그대로 남습니다.</div>
+                <div className="animctl">
+                  <button className="abtn" title="처음으로" onClick={() => { setAnimPlaying(false); animCtl.current?.seek?.(0) }}>⏮</button>
+                  <button className="abtn" title="이전 포인트" onClick={() => animStepPt(-1)}>◀</button>
+                  {animPlaying
+                    ? <button className="abtn play" title="일시정지" onClick={() => setAnimPlaying(false)}>⏸</button>
+                    : <button className="abtn play" title="자동 재생" onClick={animPlay}>▶</button>}
+                  <button className="abtn" title="다음 포인트" onClick={() => animStepPt(1)}>▶</button>
+                  <button className="abtn" title="끝으로 (전체 표시)" onClick={() => { setAnimPlaying(false); animCtl.current?.seek?.(1) }}>⏭</button>
+                </div>
+                <label className="vsrow"><span>진행</span>
+                  <input ref={progRef} type="range" min="0" max="1000" step="1" defaultValue="1000"
+                    onInput={(e) => animSeek(+e.target.value)} />
+                  <b className="vsval" ref={progLabRef}>100%</b>
+                </label>
+                <div className="vsmodes animspeed">
+                  <button className={`vsmode ${animMode === 'dur' ? 'on' : ''}`} onClick={() => setAnimMode('dur')}>재생 시간</button>
+                  <button className={`vsmode ${animMode === 'scale' ? 'on' : ''}`}
+                    disabled={!event.meta.has_time} title={event.meta.has_time ? '' : '실제 시간 데이터가 필요합니다'}
+                    onClick={() => setAnimMode('scale')}>실시간 배율</button>
+                </div>
+                {animMode === 'dur' ? (
+                  <label className="vsrow"><span>전체 재생 시간</span>
+                    <input type="range" min="1" max="30" step="0.5" value={animDur}
+                      onChange={(e) => setAnimDur(+e.target.value)} />
+                    <b className="vsval">{animDur.toFixed(1)}s</b>
+                  </label>
+                ) : (<>
+                  <label className="vsrow"><span>1 ns → 실제</span>
+                    <input type="range" min="0.1" max="10" step="0.1" value={animNsScale}
+                      onChange={(e) => setAnimNsScale(+e.target.value)} />
+                    <b className="vsval">{animNsScale.toFixed(1)}s</b>
+                  </label>
+                  <div className="dnote">기록 시간 span ≈ {animSpanNs.toPrecision(3)} ns → 전체 재생 {animDuration.toFixed(1)}s
+                    (트랙 길이에 비례해 재생 시간이 달라집니다)</div>
+                </>)}
+                <div className="dgrid">
+                  {!animRec
+                    ? <button className="dbtn" onClick={animRecord}>🎥 애니메이션 녹화</button>
+                    : <button className="dbtn stop" onClick={animRecStop}>■ 녹화 정지</button>}
+                </div>
+                {!event.meta.has_time && (
+                  <div className="dnote">ⓘ 이 데이터엔 시간 정보가 없어 <b>기록 순서</b>로 재생됩니다 (beam·reaction이 함께 출발).
+                    sci-runner 재빌드 후 실제 시간(ns) 순서로 바뀝니다.</div>
+                )}
+              </div>
+            ) : (event.tracks.length > 0
+              ? <div className="dnote">표시 중인 트랙이 없습니다 — tracks 패널에서 볼 트랙을 남기세요.</div>
+              : <div className="dnote">아직 트랙이 없습니다 — session에서 run을 실행하세요.</div>))}
             {active === 'display' && (
               <div className="displaypanel">
                 <Toggle on={show.axes} onClick={() => toggle('axes')}>원점 축 (axes)</Toggle>
@@ -722,9 +907,11 @@ export default function SimulationTab() {
       )}
 
       {/* session panel — always mounted so keyboard start/stop/run works when closed */}
-      <div className="simpanel session" style={{ display: active === 'session' ? 'flex' : 'none' }}>
+      <div className={`simpanel session ${sessWide ? 'wide' : ''}`} style={{ display: active === 'session' ? 'flex' : 'none' }}>
         <div className="sphead">
           <span className="sptitle">session</span>
+          <button className="mini" title={sessWide ? '기본 폭으로' : '좌우로 넓게 — 로그 펼치기'}
+            onClick={() => setSessWide((v) => !v)}>{sessWide ? '⤡ 좁게' : '⤢ 넓게'}</button>
           <button className="spclose" title="닫기" onClick={() => setActive(null)}>✕</button>
         </div>
         <div className="spbody"><Session ref={sessionRef} onState={setSessState} /></div>

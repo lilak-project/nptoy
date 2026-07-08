@@ -107,6 +107,16 @@ def _thin(points: list, cap: int = POINTS_PER_TRACK) -> list:
     return out
 
 
+def _thin_idx(n: int, cap: int = POINTS_PER_TRACK) -> list | None:
+    """Indices that subsample a length-`n` polyline to `cap` points (keeping first+last),
+    or None if it already fits. Used to thin a track's parallel points/times/edeps in step."""
+    if n <= cap:
+        return None
+    idx = [(i * (n - 1)) // (cap - 1) for i in range(cap)]
+    idx[-1] = n - 1
+    return idx
+
+
 def _reach2(points: list) -> float:
     """Squared max distance any step reaches from the origin. Photons that ESCAPE the
     detector reach farther out than the swarm trapped inside it, and they leave in a
@@ -131,26 +141,35 @@ def from_online(stream: Path, gdml_path: Path | None = None,
     edep: list[list[float]] = []
     emax = 0.0
     events: set[int] = set()
+    has_time = False                            # did the stream carry the time column?
     if stream.exists():
         for line in stream.read_text().splitlines():
             if not line or line[0] == "#":
                 continue
             f = line.split()
-            if len(f) != 9:
+            if len(f) not in (9, 10):           # 10th col = global time (ns), optional
                 continue
             try:
                 ev, trk, par, pdg = int(f[0]), int(f[1]), int(f[2]), int(f[3])
                 charge = float(f[4])
                 x, y, z, e = float(f[5]), float(f[6]), float(f[7]), float(f[8])
+                tm = float(f[9]) if len(f) == 10 else None
             except ValueError:
                 continue
+            if tm is not None:
+                has_time = True
             events.add(ev)
             key = (ev, trk)
             t = tracks.get(key)
             if t is None:                       # collect ALL tracks first, cap on output
                 t = tracks[key] = {"eventID": ev, "trackID": trk, "parentID": par,
-                                   "pdg": pdg, "charge": charge, "points": []}
+                                   "pdg": pdg, "charge": charge, "points": [], "times": [], "edeps": []}
             t["points"].append([x, y, z])
+            # Fall back to point index as pseudo-time for streams without the time column,
+            # so the viewer still animates in recorded order until nptool ships the time.
+            t["times"].append(tm if tm is not None else float(len(t["points"]) - 1))
+            t["edeps"].append(e)                # per-point energy deposit (0 if none) — the
+                                                # animation reveals these dots in time WITH the track
             if e > 0 and len(edep) < MAX_POINTS:
                 edep.append([x, y, z, e])
                 if e > emax:
@@ -170,11 +189,15 @@ def from_online(stream: Path, gdml_path: Path | None = None,
         start = max(0, min(tracks_from, max(0, total - 1)))
         kept = ordered[start:start + max(1, tracks_count)]
     for t in kept:
-        t["points"] = _thin(t["points"])
+        idx = _thin_idx(len(t["points"]))
+        if idx is not None:
+            t["points"] = [t["points"][i] for i in idx]
+            t["times"] = [t["times"][i] for i in idx]
+            t["edeps"] = [t["edeps"][i] for i in idx]
 
     return {
         "meta": {"units": "mm", "energy_unit": "MeV", "n_events": len(events),
-                 "n_points": len(edep), "energy_max": emax,
+                 "n_points": len(edep), "energy_max": emax, "has_time": has_time,
                  "n_tracks_total": total, "n_tracks_from": start, "n_tracks_shown": len(kept)},
         "geometry": geometry(gdml_path),
         "tracks": kept,

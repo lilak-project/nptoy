@@ -135,6 +135,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .kbdrow kbd { font-family: var(--font-mono); font-size: 11px; color: var(--fg); background: var(--field);
   border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; min-width: 14px; text-align: center; }
 .simpanel.session { width: 500px; }     /* wide so the nptool printout reads well */
+/* stretch the session panel to (almost) the full stage width so the log spreads out */
+.simpanel.session.wide { width: auto; right: 12px; }
 .sphead { display: flex; align-items: center; gap: 8px; padding: 10px 12px;
   border-bottom: 1px solid var(--line); }
 .sptitle { flex: 1; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
@@ -277,6 +279,28 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 .dbtn.axis { gap: 6px; color: var(--muted); }
 .dbtn.axis select { background: var(--bg); color: var(--fg); border: 1px solid var(--line);
   border-radius: 5px; padding: 2px 4px; font-size: 12px; }
+.dbtn.stop { border-color: #dc2626; color: #dc2626; }
+.dbtn.stop:hover { background: rgba(220, 38, 38, 0.12); }
+
+/* tracking-animation panel: playback transport + scrubber */
+.animpanel { display: flex; flex-direction: column; gap: 10px; }
+.animpanel .vsval { width: auto; min-width: 46px; }
+.animctl { display: flex; gap: 6px; justify-content: center; }
+.abtn { flex: 1; height: 34px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--field); color: var(--fg); font-size: 14px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; }
+.abtn:hover { background: var(--hover); }
+.abtn.play { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); flex: 1.4; }
+.abtn.play:hover { filter: brightness(1.05); }
+.animspeed { margin-top: 2px; }
+.vsmode:disabled { opacity: 0.4; cursor: not-allowed; }
+.vsmode:disabled:hover { color: var(--muted); }
+
+/* session: tracking-verbose toggle row */
+.vbrow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg);
+  cursor: pointer; user-select: none; margin-top: 2px; }
+.vbrow.off { opacity: 0.5; cursor: default; }
+.vbrow input { accent-color: var(--accent); }
 
 /* home (reset-view) button beside the bottom-right orientation gizmo */
 /* view controls sitting just above the bottom-right axis gizmo:  ⟲  ⌂  ⟳  */
