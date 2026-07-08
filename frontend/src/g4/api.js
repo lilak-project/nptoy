@@ -46,6 +46,15 @@ export const inputsGetFile = (slot) => req(`api/inputs/file?slot=${encodeURIComp
 export const inputsSaveFile = (slot, content) => req('api/inputs/file', 'PUT', { slot, content })
 export const inputsLoadExample = (example) => req('api/inputs/load-example', 'POST', { example })
 export const inputsSources = () => req('api/inputs/sources')
+// per-slot personal library (individual save/load/share, independent of presets)
+export const slotlibList = (slot) => req('api/slotlib?slot=' + encodeURIComponent(slot))
+export const slotlibSave = (slot, name, content, shared = false) =>
+  req('api/slotlib', 'POST', { slot, name, content, shared })
+export const slotlibLoad = (slot, id) =>
+  req(`api/slotlib/load?slot=${encodeURIComponent(slot)}&id=${encodeURIComponent(id)}`)
+export const slotlibShare = (slot, id, shared) => req('api/slotlib/share', 'POST', { slot, id, shared })
+export const slotlibDelete = (slot, id) =>
+  req(`api/slotlib?slot=${encodeURIComponent(slot)}&id=${encodeURIComponent(id)}`, 'DELETE')
 // per-user input library (named per-slot / preset saves, browsed in the Setup file menu)
 export const libraryList = (kind) => req('api/library?kind=' + encodeURIComponent(kind))
 export const librarySave = (kind, name, overwrite = false, style = null) =>

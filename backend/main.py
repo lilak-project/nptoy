@@ -33,6 +33,7 @@ import params as params_mod
 import rbrowser as rbrowser_mod
 import saves as saves_mod
 import scene
+import slotlib
 import library
 import stylepresets as styles_mod
 import sim_client
@@ -448,11 +449,69 @@ def inputs_put_file(body: SaveSlot, user: PortalUser = Depends(require_user)) ->
     return {"ok": True}
 
 
+# ── per-slot personal library (save/load/share a single input file) ───────────
+class SlotLibSave(BaseModel):
+    slot: str
+    name: str
+    content: str
+    shared: bool = False
+
+
+class SlotLibShare(BaseModel):
+    slot: str
+    id: str
+    shared: bool
+
+
+@app.get("/api/slotlib")
+def slotlib_list(slot: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        return {"items": slotlib.list_for(user.user_key, slot)}
+    except KeyError:
+        raise HTTPException(status_code=400, detail="알 수 없는 슬롯입니다.")
+
+
+@app.post("/api/slotlib")
+def slotlib_save(body: SlotLibSave, user: PortalUser = Depends(require_user)) -> dict:
+    if not (body.name or "").strip():
+        raise HTTPException(status_code=400, detail="이름을 입력하세요.")
+    try:
+        return slotlib.save(user.user_key, user.username, body.slot, body.name, body.content, body.shared)
+    except KeyError:
+        raise HTTPException(status_code=400, detail="알 수 없는 슬롯입니다.")
+
+
+@app.get("/api/slotlib/load")
+def slotlib_load(slot: str, id: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        return {"content": slotlib.load(user.user_key, slot, id)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+
+
+@app.post("/api/slotlib/share")
+def slotlib_share(body: SlotLibShare, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        return slotlib.set_shared(user.user_key, body.slot, body.id, body.shared)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="소유자만 공유할 수 있습니다.")
+
+
+@app.delete("/api/slotlib")
+def slotlib_delete(slot: str, id: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        slotlib.delete(user.user_key, slot, id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    return {"ok": True}
+
+
 @app.post("/api/inputs/load-example")
 def inputs_load_example(body: LoadExample, user: PortalUser = Depends(require_user)) -> dict:
-    s = session_mod.manager.get(user.user_key)
-    if s and s.alive():
-        raise HTTPException(status_code=409, detail="세션 실행 중에는 프리셋을 불러올 수 없습니다.")
+    # Safe during a live session: the running process built geometry/physics at start
+    # and never re-reads inputs — a load only affects the NEXT run.
     try:
         inputs.seed(user.user_key, body.example, user.username, name=body.example)
     except KeyError:
