@@ -149,6 +149,14 @@ def session_stop(sid: str, force: bool = False) -> dict:
     return _post(f"/session/{sid}/stop", {"force": bool(force)})
 
 
+def count_entries(rel: str, tree: str = "SimulatedTree") -> int | None:
+    """Tree entry count for a file under the shared volume, or None on any problem."""
+    try:
+        return _post("/entries", {"file": rel, "tree": tree}).get("entries")
+    except Exception:
+        return None
+
+
 # ── server-side ROOT draw (browser viewer can't stream nptool's unsplit objects) ──
 RENDER_DIR = SCI_SHARED_DIR / "render"     # .root files staged here for the runner to draw
 

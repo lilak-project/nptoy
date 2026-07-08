@@ -29,6 +29,7 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
   const [nEntries, setNEntries] = useState(null) // number of events (tree entries)
   const [openGroups, setOpenGroups] = useState(new Set())  // expanded branch names (default collapsed)
   const [drawErr, setDrawErr] = useState('')
+  const [drawLog, setDrawLog] = useState('')     // last draw: expr {cut} → N entries (or error)
 
   // draw form
   const [f, setF] = useState({ vx: '', vy: '', cut: '', opt: '', nx: '', xlo: '', xhi: '', ny: '', ylo: '', yhi: '' })
@@ -158,11 +159,15 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
       return replaceId ? prev.map((p) => (p.id === id ? { ...p, ...base } : p))
         : [...prev, { ...base, seq: 0 }]
     })
+    const cutTxt = spec?.cut ? ` {${spec.cut}}` : ''
     try {
       const obj = await producer()
       const seq = ++seqRef.current
+      const ne = (obj && typeof obj.fEntries === 'number') ? obj.fEntries : '?'
+      setDrawLog(`✓ ${title}${cutTxt} → ${ne} entries`)
       setPlots((prev) => prev.map((p) => (p.id === id ? { ...p, obj, loading: false, seq } : p)))
     } catch (e) {
+      setDrawLog(`✗ ${title}${cutTxt} → ${String(e?.message || e)}`)
       setPlots((prev) => prev.map((p) => (p.id === id ? { ...p, loading: false, error: String(e?.message || e) } : p)))
     }
   }
@@ -267,6 +272,7 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
         </div>
       )}
       {drawErr && <div className="rvderr">⚠ {drawErr}</div>}
+      {drawLog && <div className="rvdrawlog" title="마지막 그리기 로그">{drawLog}</div>}
       {err && <div className="rvderr">⚠ 파일을 열지 못했습니다: {err}</div>}
       <div className={grid ? 'rvgrid' : 'rvstack'}>
         {plots.map((p) => {

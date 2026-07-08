@@ -61,8 +61,8 @@ export default forwardRef(function Session({ onState } = {}, ref) {
     setSess(null); setLines([]); sinceRef.current = 0; setVerbose(false)
     // Report the files the session left in outputs/ via the top-right toast.
     const files = res && res.files
-    if (force) notify('세션을 강제 종료했습니다' + (files && files.length ? ' — 저장: ' + files.join(', ') : ''))
-    else if (files && files.length) notify('저장됨: ' + files.join(', '))
+    if (force) notify('세션을 강제 종료했습니다' + (files && files.length ? ' — 저장: ' + files.join('  /  ') : ''))
+    else if (files && files.length) notify('저장됨: ' + files.join('  /  '))
   }
   async function doRun(count) {
     setError(null)

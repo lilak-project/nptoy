@@ -29,6 +29,31 @@ import inputs
 import settings
 import sim_client
 
+def _human_size(n: int) -> str:
+    x = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if x < 1024 or unit == "GB":
+            return (f"{int(x)} {unit}" if unit in ("B", "KB") else f"{x:.1f} {unit}")
+        x /= 1024
+
+
+def _describe_output(dst, staged_src) -> str:
+    """`name · 256 KB · 1000 events` — size always, event count for a .root when the
+    sci-runner can read it (best-effort; falls back to size only)."""
+    try:
+        label = f"{dst.name} · {_human_size(dst.stat().st_size)}"
+    except OSError:
+        return dst.name
+    if dst.suffix == ".root":
+        try:
+            n = sim_client.count_entries(sim_client.rel_to_shared(staged_src))
+            if isinstance(n, int) and n >= 0:
+                label += f" · {n} events"
+        except Exception:
+            pass
+    return label
+
+
 # states
 STARTING = "starting"   # process up, Geant4 still initialising (no Idle> yet)
 IDLE = "idle"           # ready for a command
@@ -175,9 +200,10 @@ class Session:
             self._send(f"/tracking/verbose {1 if on else 0}")
 
     def _created_files(self) -> list[str]:
-        """Output files this session left in outputs/ (names only), for the stop notice."""
+        """Output files this session left in outputs/ (name · size [· events]), for the stop notice."""
         out = inputs.outputs_dir(self.user_key)
-        return [n for n in (f"{self.output}.root", inputs.GEOM_NAME) if (out / n).exists()]
+        return [_describe_output(out / n, out / n)
+                for n in (f"{self.output}.root", inputs.GEOM_NAME) if (out / n).exists()]
 
     def stop(self, force: bool = False) -> list[str]:
         if self.alive():
@@ -312,14 +338,17 @@ class SciSession:
                 pass
         # Persist the ROOT + geometry dump into the user's real outputs/ (the staged
         # copies are on the transient shared volume); then drop the staging dir.
+        # Describe each with size (+ event count for the .root) so the stop notice makes
+        # an empty run obvious at a glance.
         out = inputs.outputs_dir(self.user_key)
         created: list[str] = []
         for src in (self._stage / "outputs" / f"{self.output}.root",
                     self._stage / "outputs" / inputs.GEOM_NAME):
             try:
                 if src.exists():
-                    shutil.copy2(src, out / src.name)
-                    created.append(src.name)
+                    dst = out / src.name
+                    shutil.copy2(src, dst)
+                    created.append(_describe_output(dst, src))
             except OSError:
                 pass
         shutil.rmtree(self._stage, ignore_errors=True)
