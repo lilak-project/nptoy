@@ -11,6 +11,8 @@ from typing import Optional
 from jose import jwt
 from fastapi import Header, Request
 
+import portal_profile
+
 SECRET_KEY = (
     os.environ.get("PORTAL_SECRET_KEY")
     or os.environ.get("ELOG_SECRET_KEY")
@@ -38,10 +40,13 @@ def identity(request: Request, authorization: Optional[str] = Header(default=Non
     payload = decode_token(token) if token else None
     if not payload:
         return {"authenticated": False, "email": None, "username": None, "name": None, "role": None}
+    payload = portal_profile.current(payload)
     return {
         "authenticated": True,
         "email": payload.get("email"),
         "username": payload.get("username") or payload.get("name"),
         "name": payload.get("name") or payload.get("username"),
         "role": payload.get("prole") or payload.get("role"),
+        "color": payload.get("color"),
+        "shape": payload.get("shape"),
     }

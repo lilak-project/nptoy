@@ -68,7 +68,7 @@ def health() -> dict:
 def whoami(user: PortalUser = Depends(require_user)) -> dict:
     """Portal identity of the caller (nptoy scaffold pages read this)."""
     return {"authenticated": True, "email": user.email, "username": user.username,
-            "name": user.name, "role": user.role}
+            "name": user.name, "role": user.role, "color": user.color, "shape": user.shape}
 
 
 # ── identity + quota (PLAN §5 /api/me) ────────────────────────────────────────

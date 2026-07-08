@@ -45,8 +45,8 @@ export async function fetchBlobURL(url) {
 // The portal cover UI lives one level up from this service's base.
 export function portalHome() { return PORTAL_BASE ? PORTAL_BASE.replace(/\/p\/[^/]+$/, '/') || '/' : '/' }
 
-// Decode the SSO JWT client-side for the portal profile (name/email/avatar), so the
-// nptoy chrome shows the SAME identity as the portal (and the community avatars).
+// Fallback only. The shell normally uses /api/whoami so profile edits made in the
+// portal are reflected without requiring a fresh login/JWT.
 export function portalProfile() {
   try {
     const t = token()
