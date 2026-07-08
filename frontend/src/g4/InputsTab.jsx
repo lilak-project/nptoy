@@ -459,7 +459,7 @@ export default function InputsTab({ me, onSetupName }) {
                   <button className={mode === 'text' ? 'on' : ''} onClick={() => switchMode('text')}>text</button>
                 </div>
               )}
-              <button className="sbtn go" disabled={!dirty} onClick={save}>apply</button>
+              <button className="sbtn go" disabled={!dirty} onClick={save}>적용</button>
             </div>
           </div>
 
@@ -490,10 +490,12 @@ export default function InputsTab({ me, onSetupName }) {
         </div>
       ) : active === 'style' ? (
         <div className="filespanel setupbox setupeditor">
-          <div className="fphead">
+          <div className="fphead editorhead">
             <span className="fptitle">style</span>
-            <button className="sbtn go" disabled={!styleText.trim()} onClick={applyStyle}
-              title="붙여넣은 스타일을 뷰어에 적용">적용</button>
+            <div className="fpctl">
+              <button className="sbtn go" disabled={!styleText.trim()} onClick={applyStyle}
+                title="붙여넣은 스타일을 뷰어에 적용">적용</button>
+            </div>
           </div>
           {!styleText.trim() && (
             <div className="styleguide">

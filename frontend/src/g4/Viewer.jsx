@@ -603,7 +603,10 @@ function fit(geometry) {
 }
 
 function pickMime() {
-  const opts = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+  // Prefer MP4 (H.264) so the exported clip is an .mp4 wherever the browser can
+  // record it (recent Chrome/Edge, Safari); fall back to WebM otherwise.
+  const opts = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4',
+    'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
   for (const m of opts) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m
   return ''
 }
@@ -709,7 +712,9 @@ function CaptureRig({ apiRef, center, camPos, rollRef }) {
       // Start recording the live canvas to a video file. Unlike recordTurntable this
       // does NOT drive the camera — the tracking panel advances the animation while
       // this captures each rendered frame; call recordStop() when the animation ends.
-      recordStart({ onDone } = {}) {
+      // onClip({ url, filename, ext }) receives the finished clip so the panel can
+      // offer a download button; without it the clip auto-downloads (legacy).
+      recordStart({ onDone, onClip } = {}) {
         const el = gl.domElement
         if (typeof el.captureStream !== 'function' || !window.MediaRecorder) {
           onDone && onDone('브라우저가 녹화를 지원하지 않습니다'); return false
@@ -723,11 +728,15 @@ function CaptureRig({ apiRef, center, camPos, rollRef }) {
         const chunks = []
         clipRec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
         clipRec.onstop = () => {
-          const blob = new Blob(chunks, { type: chunks[0]?.type || 'video/webm' })
+          const blob = new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+          const ext = blob.type.includes('mp4') ? 'mp4' : 'webm'
           const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url; a.download = 'nptoy-tracks.' + (mime.includes('mp4') ? 'mp4' : 'webm'); a.click()
-          setTimeout(() => URL.revokeObjectURL(url), 3000)
+          const filename = 'nptoy-tracks.' + ext
+          if (onClip) onClip({ url, filename, ext })    // panel keeps it → download button
+          else {
+            const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+            setTimeout(() => URL.revokeObjectURL(url), 3000)
+          }
           onDone && onDone()
         }
         clipRec.start()

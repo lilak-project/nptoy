@@ -168,6 +168,7 @@ export default function SimulationTab() {
   const [animDur, setAnimDur] = useState(8)            // fixed mode: total play-through seconds (1–30)
   const [animNsScale, setAnimNsScale] = useState(2)    // scale mode: real seconds per recorded ns
   const [animRec, setAnimRec] = useState(false)        // recording to a video
+  const [animClip, setAnimClip] = useState(null)       // { url, filename, ext } finished clip, ready to download
   const animCtl = useRef(null)                          // imperative handle from AnimatedTracks
   const progRef = useRef(null)                          // <input> progress slider (uncontrolled)
   const progLabRef = useRef(null)                       // progress % label
@@ -305,11 +306,19 @@ export default function SimulationTab() {
   const handleAnimDone = () => { setAnimPlaying(false); viewerApi.current?.recordStop?.(); setAnimRec(false) }
   const animRecord = () => {
     if (!animHasTracks || !viewerApi.current) return
-    const ok = viewerApi.current.recordStart?.({ onDone: (err) => { if (err) setError(err) } })
+    if (animClip) { URL.revokeObjectURL(animClip.url); setAnimClip(null) }   // drop the previous take
+    const ok = viewerApi.current.recordStart?.({
+      onDone: (err) => { if (err) setError(err) },
+      onClip: (clip) => setAnimClip(clip),                                    // keep it for the download button
+    })
     if (ok === false) return
     animCtl.current?.seek?.(0); setAnimRec(true); setAnimPlaying(true)
   }
   const animRecStop = () => { setAnimPlaying(false); viewerApi.current?.recordStop?.(); setAnimRec(false) }
+  const animDownload = () => {
+    if (!animClip) return
+    const a = document.createElement('a'); a.href = animClip.url; a.download = animClip.filename; a.click()
+  }
   // tracks grouped for the tree (beam group first in species mode)
   const trackGroups = useMemo(() => {
     const m = new Map()
@@ -838,6 +847,9 @@ export default function SimulationTab() {
                   {!animRec
                     ? <button className="dbtn" onClick={animRecord}>🎥 애니메이션 녹화</button>
                     : <button className="dbtn stop" onClick={animRecStop}>■ 녹화 정지</button>}
+                  {!animRec && animClip && (
+                    <button className="dbtn go" onClick={animDownload}>⬇ 다운로드 ({animClip.ext})</button>
+                  )}
                 </div>
                 {!event.meta.has_time && (
                   <div className="dnote">ⓘ 이 데이터엔 시간 정보가 없어 <b>기록 순서</b>로 재생됩니다 (beam·reaction이 함께 출발).
