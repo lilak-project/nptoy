@@ -88,6 +88,40 @@ export async function downloadFile(path) {
   document.body.appendChild(a); a.click(); a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
+
+// Fetch a file's bytes WITH auth and return a browser File object. Used by the
+// client-side JSROOT viewer, which reads the .root entirely in the browser (no ROOT
+// server): JSROOT.openFile() accepts a File (arg.size && arg.name → TLocalFile).
+export async function fetchFileObject(path) {
+  const t = token()
+  const res = await fetch('api/files/download?path=' + encodeURIComponent(path),
+    { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+  if (!res.ok) throw new Error(`파일을 불러오지 못했습니다 (${res.status})`)
+  const blob = await res.blob()
+  return new File([blob], path.split('/').pop() || 'file.root')
+}
+
+// Draw one branch member SERVER-SIDE (real ROOT in the sci-runner) and return the
+// histogram as a JSROOT-parseable JSON string. JSROOT can't stream nptool's unsplit
+// custom objects, so the browser lists the members but the server fills the histogram.
+export async function rootDraw(path, tree, expr, cut = '', hist = '') {
+  const t = token()
+  const qs = `path=${encodeURIComponent(path)}&tree=${encodeURIComponent(tree)}&expr=${encodeURIComponent(expr)}`
+    + `&cut=${encodeURIComponent(cut)}&hist=${encodeURIComponent(hist)}`
+  const res = await fetch('api/root/draw?' + qs,
+    { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+  if (!res.ok) {
+    let detail = `${res.status}`
+    try { detail = (await res.json()).detail || detail } catch {}
+    throw new Error(detail)
+  }
+  return res.text()
+}
+// Temp-save the active plot: server re-runs the draw and writes it to a .root file
+// under the user's root/ dir (sibling of output/), which then shows in the browser.
+export const rootSave = (path, tree, expr, cut = '', hist = '', name = '') =>
+  req('api/root/save', 'POST', { path, tree, expr, cut, hist, name })
+
 export async function downloadFilesZip(paths) {
   const t = token()
   const res = await fetch('api/files/zip', {

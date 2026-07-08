@@ -120,3 +120,49 @@ def _post(path: str, body: dict) -> dict:
         raise RuntimeError(_http_error_message(exc)) from exc
 
 
+def stage_file_for_render(user_key, abspath) -> str:
+    """Copy a user's .root onto the shared volume (cached by size+mtime) so the runner
+    can read it, and return the path RELATIVE to the shared volume (what the runner
+    addresses as its `file`)."""
+    src = Path(abspath)
+    st = src.stat()
+    dest = RENDER_DIR / str(user_key) / src.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not (dest.exists() and dest.stat().st_size == st.st_size
+            and dest.stat().st_mtime >= st.st_mtime):
+        shutil.copy2(src, dest)
+    return dest.resolve().relative_to(SCI_SHARED_DIR.resolve()).as_posix()
+
+
+def root_draw(rel: str, tree: str, expr: str, cut: str = "", hist: str = "") -> str:
+    """Ask the runner to TTree::Draw `expr` (1D "varx" or 2D "vary:varx") from the
+    staged file — with an optional selection `cut` and explicit `hist` binning — and
+    return the resulting histogram as a JSON string (JSROOT parses+draws it)."""
+    body = json.dumps({"file": rel, "tree": tree, "expr": expr, "cut": cut, "hist": hist}).encode()
+    req = urllib.request.Request(f"{SCI_URL}/root/draw", data=body, headers=_headers(), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(_http_error_message(exc)) from exc
+
+
+def root_save(rel: str, tree: str, expr: str, cut: str, hist: str, name: str, opt: str,
+              out_rel: str) -> str:
+    """Ask the runner to run the same TTree::Draw and WRITE the histogram + a TCanvas
+    into a .root file at `out_rel` (relative to the shared volume). Returns out_rel; the
+    caller copies that file back into the user's root/ dir."""
+    body = json.dumps({"file": rel, "tree": tree, "expr": expr, "cut": cut, "hist": hist,
+                       "name": name, "opt": opt, "out": out_rel}).encode()
+    req = urllib.request.Request(f"{SCI_URL}/root/save", data=body, headers=_headers(), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            json.loads(r.read().decode())
+            return out_rel
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(_http_error_message(exc)) from exc
+
+
+def render_out_path(rel: str) -> Path:
+    """Absolute path (on the shared volume) of a runner output addressed relative to it."""
+    return (SCI_SHARED_DIR / rel).resolve()

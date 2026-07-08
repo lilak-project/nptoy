@@ -9,10 +9,18 @@ export default defineConfig(({ mode }) => {
   const PORT = Number(env.PORT) || 5160
   const BACKEND = env.NPTOY_BACKEND || 'http://localhost:8160'
   const UI = env.LILAK_UI_PATH ? resolve(env.LILAK_UI_PATH) : resolve(__dirname, '../../lilak_ui')
+  // jsroot dynamically import()s these Node-only deps under isNodeJs() (headless
+  // SVG→PNG, server canvas); they never run in the browser but rollup still tries to
+  // bundle them and the native .node binaries break the build. Stub them out.
+  const jsrootNodeStub = resolve(__dirname, 'src/jsroot-node-stub.js')
+  const nodeOnly = ['@resvg/resvg-js', 'canvas', 'jsdom', 'xhr2', 'tmp', 'mathjax']
   return {
     base: './',
     plugins: [react()],
-    resolve: { alias: { 'lilak-ui': resolve(UI, 'src') } },
+    resolve: { alias: {
+      'lilak-ui': resolve(UI, 'src'),
+      ...Object.fromEntries(nodeOnly.map((m) => [m, jsrootNodeStub])),
+    } },
     optimizeDeps: { include: ['@phosphor-icons/react', 'react-markdown', 'remark-gfm'] },
     server: { port: PORT, host: true, fs: { allow: [resolve(__dirname), UI] }, proxy: { '/api': BACKEND } },
   }

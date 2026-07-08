@@ -558,6 +558,78 @@ def files_download(path: str, user: PortalUser = Depends(require_user)) -> FileR
     return FileResponse(str(p), filename=p.name, media_type="application/octet-stream")
 
 
+@app.get("/api/root/draw")
+def root_draw(path: str, expr: str, tree: str = "SimulatedTree", cut: str = "", hist: str = "",
+              user: PortalUser = Depends(require_user)) -> Response:
+    """Draw an expression from a .root file server-side (real ROOT lives in the
+    sci-runner) and return the histogram as JSON for the client's JSROOT viewer —
+    JSROOT can't stream nptool's unsplit custom objects, but renders a TH1/TH2 JSON
+    fine. `expr` is 1D "varx" or 2D "vary:varx"; `cut`/`hist` are optional."""
+    if config.RUNNER != "sci":
+        raise HTTPException(status_code=501, detail="서버 렌더링은 sci 배포에서만 지원됩니다.")
+    try:
+        p = browse.resolve(user.user_key, path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="잘못된 경로입니다.")
+    if not p.is_file() or p.suffix != ".root":
+        raise HTTPException(status_code=404, detail="ROOT 파일을 찾을 수 없습니다.")
+    try:
+        rel = sim_client.stage_file_for_render(user.user_key, p)
+        js = sim_client.root_draw(rel, tree, expr, cut, hist)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=f"그리기 실패: {e}")
+    return Response(content=js, media_type="application/json")
+
+
+class RootSaveBody(BaseModel):
+    path: str
+    tree: str = "SimulatedTree"
+    expr: str
+    cut: str = ""
+    hist: str = ""
+    name: str = "canvas"
+    opt: str = ""
+
+
+@app.post("/api/root/save")
+def root_save(body: RootSaveBody, user: PortalUser = Depends(require_user)) -> dict:
+    """Temp-save a drawn histogram to a .root file under the user's root/ dir (a sibling
+    of outputs/). The runner re-runs the draw and writes hist + a TCanvas; we copy the
+    result back into the user's workspace, where the Files browser then lists it."""
+    if config.RUNNER != "sci":
+        raise HTTPException(status_code=501, detail="서버 렌더링은 sci 배포에서만 지원됩니다.")
+    try:
+        p = browse.resolve(user.user_key, body.path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="잘못된 경로입니다.")
+    if not p.is_file() or p.suffix != ".root":
+        raise HTTPException(status_code=404, detail="ROOT 파일을 찾을 수 없습니다.")
+    # sanitize the object/file name to a plain identifier (matches the runner's check)
+    name = re.sub(r"[^A-Za-z0-9_]", "_", body.name or "canvas").strip("_")[:48] or "canvas"
+    if not re.match(r"^[A-Za-z_]", name):
+        name = "h_" + name
+    out_rel = f"render/{user.user_key}/save/{name}.root"
+    try:
+        rel = sim_client.stage_file_for_render(user.user_key, p)
+        sim_client.root_save(rel, body.tree, body.expr, body.cut, body.hist, name, body.opt, out_rel)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=f"저장 실패: {e}")
+    produced = sim_client.render_out_path(out_rel)
+    if not produced.is_file():
+        raise HTTPException(status_code=502, detail="저장 실패: 결과 파일이 없습니다.")
+    root_dir = config.USERS_ROOT / user.user_key / "root"
+    root_dir.mkdir(parents=True, exist_ok=True)
+    dest = root_dir / f"{name}.root"
+    # avoid clobbering: suffix -2, -3… if the name already exists
+    n = 2
+    while dest.exists():
+        dest = root_dir / f"{name}-{n}.root"
+        n += 1
+    import shutil as _shutil
+    _shutil.copy2(produced, dest)
+    return {"ok": True, "name": dest.name, "path": f"root/{dest.name}"}
+
+
 class PathList(BaseModel):
     paths: list[str]
 
