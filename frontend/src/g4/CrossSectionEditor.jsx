@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { NumberField } from './formfields.jsx'
 
 // Generate / edit the differential cross-section file (2 columns: angle[deg] value).
 // flat (isotropic), exponential (forward-peaked), gaussian — plus raw text editing.
@@ -11,7 +12,11 @@ const SHAPES = [
 ]
 
 function generate(g) {
-  const { shape, min, max, step, value, amp, tau, mu, sigma } = g
+  // g fields are raw strings (so the inputs can sit empty / hold '-' mid-edit) — coerce here.
+  const N = (x) => { const v = Number(x); return Number.isFinite(v) ? v : 0 }
+  const shape = g.shape
+  const min = N(g.min), max = N(g.max), step = N(g.step), value = N(g.value)
+  const amp = N(g.amp), tau = N(g.tau), mu = N(g.mu), sigma = N(g.sigma)
   const rows = []
   const st = Math.max(Math.abs(step) || 1, 1e-6)
   for (let a = min; a <= max + 1e-9; a += st) {
@@ -41,7 +46,7 @@ function Field({ label, unit, wide, children, ...rest }) {
     <label className={`csf${wide ? ' wide' : ''}`}>
       <span className="csfl">{label}</span>
       <span className="csfc">
-        {children || <input type="number" {...rest} />}
+        {children || <NumberField value={rest.value} onChange={rest.onChange} placeholder={rest.placeholder} />}
         {unit && <i>{unit}</i>}
       </span>
     </label>
@@ -55,7 +60,7 @@ export default function CrossSectionEditor({ path, value, onChange, files = [], 
   const [saveName, setSaveName] = useState('')
   const [grid, setGrid] = useState(true)
   const set = (k, v) => setG((s) => ({ ...s, [k]: v }))
-  const num = (k) => (e) => set(k, +e.target.value)
+  const num = (k) => (v) => set(k, v)   // NumberField hands us the raw string; generate() coerces
   const apply = () => onChange(generate(g))
 
   const pts = useMemo(() => parsePoints(value), [value])

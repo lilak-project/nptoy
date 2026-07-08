@@ -33,6 +33,7 @@ import params as params_mod
 import rbrowser as rbrowser_mod
 import saves as saves_mod
 import scene
+import library
 import stylepresets as styles_mod
 import sim_client
 import session as session_mod
@@ -458,6 +459,119 @@ def inputs_load_example(body: LoadExample, user: PortalUser = Depends(require_us
         raise HTTPException(status_code=404, detail="알 수 없는 프리셋입니다.")
     return {"ok": True, "project": inputs.project_name(user.user_key),
             "name": inputs.setup_name(user.user_key)}
+
+
+# ── input library (named per-slot / preset saves, browsed in the Setup file menu) ──
+class LibrarySave(BaseModel):
+    kind: str
+    name: str
+    overwrite: bool = False
+    style: dict | None = None   # viewer style blob, stored with preset kinds
+
+
+class LibraryLoad(BaseModel):
+    kind: str
+    name: str
+
+
+@app.get("/api/library")
+def library_list(kind: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        return {"kind": kind, "items": library.list_kind(user.user_key, kind)}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="알 수 없는 종류입니다.")
+
+
+@app.post("/api/library/save")
+def library_save(body: LibrarySave, user: PortalUser = Depends(require_user)) -> dict:
+    inputs.ensure(user.user_key)
+    try:
+        name = library.save(user.user_key, body.kind, body.name, overwrite=body.overwrite, style=body.style)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="알 수 없는 종류입니다.")
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="같은 이름이 이미 있습니다.")
+    inputs.set_setup_name(user.user_key, name)   # saving names the project
+    return {"ok": True, "name": name, "setup_name": inputs.setup_name(user.user_key)}
+
+
+@app.post("/api/library/load")
+def library_load(body: LibraryLoad, user: PortalUser = Depends(require_user)) -> dict:
+    # Safe during a live session: the running process never re-reads inputs, so a load
+    # only affects the NEXT run.
+    inputs.ensure(user.user_key)
+    try:
+        name = library.load(user.user_key, body.kind, body.name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="알 수 없는 종류입니다.")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+    style = None
+    if body.kind == "preset":
+        inputs.set_setup_name(user.user_key, name)
+        style = library.preset_style(user.user_key, body.kind, name)
+    return {"ok": True, "name": name, "setup_name": inputs.setup_name(user.user_key), "style": style}
+
+
+@app.delete("/api/library")
+def library_delete(kind: str, name: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        library.delete(user.user_key, kind, name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="알 수 없는 종류입니다.")
+    return {"ok": True}
+
+
+class SharedSave(BaseModel):
+    name: str
+    overwrite: bool = False
+    style: dict | None = None   # viewer style blob, stored with the shared preset
+
+
+class SharedLoad(BaseModel):
+    owner: str
+    name: str
+
+
+@app.get("/api/library/shared")
+def shared_list(user: PortalUser = Depends(require_user)) -> dict:
+    return {"items": library.list_shared(user.user_key)}
+
+
+@app.post("/api/library/shared/save")
+def shared_save(body: SharedSave, user: PortalUser = Depends(require_user)) -> dict:
+    inputs.ensure(user.user_key)
+    try:
+        name = library.save_shared(user.user_key, user.name or user.username, body.name,
+                                   overwrite=body.overwrite, style=body.style)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="다른 사람이 만든 프리셋은 덮어쓸 수 없습니다.")
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="같은 이름이 이미 있습니다.")
+    inputs.set_setup_name(user.user_key, name)
+    return {"ok": True, "name": name, "setup_name": inputs.setup_name(user.user_key)}
+
+
+@app.post("/api/library/shared/load")
+def shared_load(body: SharedLoad, user: PortalUser = Depends(require_user)) -> dict:
+    # Safe during a live session (see library_load): only affects the NEXT run.
+    inputs.ensure(user.user_key)
+    try:
+        name = library.load_shared(user.user_key, body.owner, body.name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="프리셋을 찾을 수 없습니다.")
+    inputs.set_setup_name(user.user_key, name)
+    style = library.shared_style(user.user_key, body.owner, body.name)
+    return {"ok": True, "name": name, "setup_name": inputs.setup_name(user.user_key), "style": style}
+
+
+@app.delete("/api/library/shared")
+def shared_delete(owner: str, name: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        library.delete_shared(user.user_key, owner, name)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="다른 사람이 만든 프리셋은 삭제할 수 없습니다.")
+    return {"ok": True}
 
 
 # ── interactive nptool sessions (live npsimulation -N + Run button) ───────────

@@ -1,5 +1,23 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { splitNum, composeNum, MATERIALS, MATERIAL_COMPOSITION } from './detector.js'
+
+// A number-in-progress: empty, a lone '-', a partial decimal, or scientific notation.
+// Using a TEXT input (not type=number) means no spinner arrows AND you can fully clear
+// the box / type '-' or the first digit without the browser fighting you.
+const _NUM_OK = /^-?\d*\.?\d*(?:[eE][+-]?\d*)?$/
+
+// Shared numeric input: no up/down arrows, freely clearable. Marks itself
+// data-empty="1" (+ .empty red border) when blank so a save can flag it.
+export function NumberField({ value, onChange, className = '', ...rest }) {
+  const empty = String(value ?? '').trim() === ''
+  return (
+    <input type="text" inputMode="decimal" spellCheck={false}
+      className={`numinput ${empty ? 'empty' : ''} ${className}`.trim()}
+      data-empty={empty ? '1' : '0'} value={value ?? ''}
+      onChange={(e) => { const v = e.target.value; if (_NUM_OK.test(v)) onChange(v) }}
+      {...rest} />
+  )
+}
 
 // A parameter label with a clickable ⓘ that toggles its description as a small
 // popover — so a field fits on one line ("이름 (i) [입력] 단위") instead of stacking
@@ -57,13 +75,24 @@ export function Field({ f, value, onChange, onRemove }) {
   )
 }
 
+// A group of numbers + optional unit (e.g. a 3-vector "0 0 5 mm"). Keeps its OWN raw
+// strings so a field can sit EMPTY while editing — `composeNum` would otherwise turn
+// '' back into '0' on the round-trip and refill the box mid-edit. It resyncs from the
+// parent only when the parent's value truly differs (e.g. a preset applied elsewhere).
 export function NumInput({ value, n, unit, onChange }) {
-  const { nums, unit: u } = splitNum(value, n, unit)
-  const set = (idx, v) => { const next = nums.slice(); next[idx] = v; onChange(composeNum(next, u)) }
+  const init = splitNum(value, n, unit)
+  const [nums, setNums] = useState(init.nums)
+  const u = init.unit
+  useEffect(() => {
+    // only overwrite local edits if the incoming value isn't what we already emitted
+    if (composeNum(nums, u) !== String(value ?? '').trim()) setNums(splitNum(value, n, unit).nums)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  const set = (idx, v) => { const next = nums.slice(); next[idx] = v; setNums(next); onChange(composeNum(next, u)) }
   return (
     <span className="dnum">
       {nums.map((x, i) => (
-        <input key={i} type="number" value={x} step="any" onChange={(e) => set(i, e.target.value)} />
+        <NumberField key={i} value={x} onChange={(v) => set(i, v)} />
       ))}
       {u && <span className="dunit">{u}</span>}
     </span>

@@ -46,6 +46,21 @@ export const inputsGetFile = (slot) => req(`api/inputs/file?slot=${encodeURIComp
 export const inputsSaveFile = (slot, content) => req('api/inputs/file', 'PUT', { slot, content })
 export const inputsLoadExample = (example) => req('api/inputs/load-example', 'POST', { example })
 export const inputsSources = () => req('api/inputs/sources')
+// per-user input library (named per-slot / preset saves, browsed in the Setup file menu)
+export const libraryList = (kind) => req('api/library?kind=' + encodeURIComponent(kind))
+export const librarySave = (kind, name, overwrite = false, style = null) =>
+  req('api/library/save', 'POST', { kind, name, overwrite, ...(style ? { style } : {}) })
+export const libraryLoad = (kind, name) => req('api/library/load', 'POST', { kind, name })
+export const libraryDelete = (kind, name) =>
+  req(`api/library?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(name)}`, 'DELETE')
+// shared presets — visible to everyone; only the owner may overwrite/delete
+export const librarySharedList = () => req('api/library/shared')
+export const librarySharedSave = (name, overwrite = false, style = null) =>
+  req('api/library/shared/save', 'POST', { name, overwrite, ...(style ? { style } : {}) })
+// shared presets are namespaced by owner → identified by (owner, name)
+export const librarySharedLoad = (owner, name) => req('api/library/shared/load', 'POST', { owner, name })
+export const librarySharedDelete = (owner, name) =>
+  req(`api/library/shared?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(name)}`, 'DELETE')
 export const csCandidates = () => req('api/inputs/crosssections')
 export const csGet = (name) => req('api/inputs/crosssection' + (name ? `?name=${encodeURIComponent(name)}` : ''))
 export const csSave = (content, name) =>

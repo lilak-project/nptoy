@@ -30,6 +30,7 @@ DETECTOR = "detector.txt"
 REACTION = "reaction.txt"
 PHYSICS = "PhysicsListOption.txt"     # nptool reads this by fixed name from cwd
 PROJECT_CONFIG = "project.config"     # nptool reads this by fixed name from cwd
+ANALYSIS = "analysis.json"            # Files-tab pre-drawn plots (structured slot)
 MANIFEST = "manifest.json"
 
 # project.config points nptool's output here, relative to the run cwd (= inputs/):
@@ -215,8 +216,14 @@ def build_one(key: str, proj: dict) -> bool:
         shutil.copyfile(pc, dst / PROJECT_CONFIG)
     set_output_dir(dst / PROJECT_CONFIG)
 
+    # analysis setup (pre-drawn plots for the Files tab) — copy from source if present,
+    # else start empty; carried by the preset so it seeds into the user workspace.
+    asrc = src / ANALYSIS
+    (dst / ANALYSIS).write_text(asrc.read_text() if asrc.exists() else '{"plots": []}\n')
+
     (dst / MANIFEST).write_text(json.dumps(
-        {"example": key, "detector": DETECTOR, "reaction": REACTION, "physics": PHYSICS},
+        {"example": key, "detector": DETECTOR, "reaction": REACTION, "physics": PHYSICS,
+         "analysis": ANALYSIS},
         indent=2))
     return True
 
@@ -233,6 +240,22 @@ def _stash_scripts() -> None:
             for name, p in found.items():
                 shutil.copyfile(p, SCRIPTS_DIR / name)
             break
+
+
+def _preset_complete(key: str) -> bool:
+    """True only if the preset has its manifest AND the input files the manifest names.
+    A manifest-only husk (e.g. a legacy/interrupted build — as Plunger once shipped)
+    must NOT count as built, or the idempotent guard below would protect it forever."""
+    d = preset_dir(key)
+    man = d / MANIFEST
+    if not man.exists():
+        return False
+    try:
+        m = json.loads(man.read_text())
+    except (OSError, ValueError):
+        return False
+    needed = (m.get("detector", DETECTOR), m.get("reaction", REACTION), m.get("physics", PHYSICS))
+    return all((d / name).exists() for name in needed)
 
 
 def _seed_preset(key: str) -> bool:
@@ -255,7 +278,7 @@ def build_common(force: bool = False) -> list[str]:
     config.COMMON_ROOT.mkdir(parents=True, exist_ok=True)
     built = []
     for key, proj in config.PROJECTS.items():
-        if not force and (preset_dir(key) / MANIFEST).exists():
+        if not force and _preset_complete(key):
             continue
         if build_one(key, proj) or _seed_preset(key):
             built.append(key)

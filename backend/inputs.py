@@ -32,7 +32,13 @@ SLOTS = [
     {"key": "detector", "label": "Detector"},
     {"key": "reaction", "label": "Reaction"},
 ]
-_SLOT_KEYS = {s["key"] for s in SLOTS}
+# Analysis setup: a structured (JSON) slot describing which plots to pre-draw when a
+# .root output is opened in the Files tab. Editable like a text slot (the UI sends
+# JSON text), saved with the workspace, and thus carried by presets & saves.
+ANALYSIS_SLOT = "analysis"
+ANALYSIS_FILE = "analysis.json"
+_DEFAULT_ANALYSIS = '{"plots": []}\n'
+_SLOT_KEYS = {s["key"] for s in SLOTS} | {ANALYSIS_SLOT}
 # files that are NOT user cross-section candidates
 _NON_CS = {common.PHYSICS, common.DETECTOR, common.REACTION, common.MANIFEST, "export.txt"}
 
@@ -112,10 +118,28 @@ def set_setup_name(user_key: str, name: str) -> None:
     _manifest_path(user_key).write_text(json.dumps(man, indent=2))
 
 
+def _ensure_analysis(user_key: str) -> None:
+    """Make sure the workspace has an analysis-setup slot (manifest key + file) —
+    migrates older workspaces/presets that predate the feature."""
+    man_path = _manifest_path(user_key)
+    if not man_path.exists():
+        return
+    man = json.loads(man_path.read_text())
+    if not man.get(ANALYSIS_SLOT):
+        man[ANALYSIS_SLOT] = ANALYSIS_FILE
+        man_path.write_text(json.dumps(man, indent=2))
+    af = root(user_key) / man[ANALYSIS_SLOT]
+    if not af.exists():
+        af.write_text(_DEFAULT_ANALYSIS)
+
+
 def ensure(user_key: str, project_name: str | None = None) -> dict:
     if not _manifest_path(user_key).exists():
-        return seed(user_key, common.default_preset(), project_name)
+        m = seed(user_key, common.default_preset(), project_name)
+        _ensure_analysis(user_key)
+        return m
     outputs_dir(user_key).mkdir(parents=True, exist_ok=True)
+    _ensure_analysis(user_key)
     return manifest(user_key)
 
 
@@ -147,6 +171,16 @@ def _resolve(user_key: str, slot: str) -> Path:
 
 def read_slot(user_key: str, slot: str) -> str:
     return _resolve(user_key, slot).read_text()
+
+
+def slot_blank(user_key: str, slot: str) -> bool:
+    """True if a slot has no real content — only blank lines / `%` comments. Used to
+    flag detector/reaction that still need filling after '새로 만들기'."""
+    try:
+        txt = read_slot(user_key, slot)
+    except (ValueError, FileNotFoundError, OSError):
+        return False
+    return all((not s or s.startswith("%")) for s in (ln.strip() for ln in txt.splitlines()))
 
 
 def write_slot(user_key: str, slot: str, content: str) -> None:

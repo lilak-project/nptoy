@@ -57,6 +57,18 @@ export default function StylePresets({ styles, hidden, onApply }) {
     try { await stylesDelete(sel.id); setSelected(''); refresh() } catch {}
   }
 
+  // Copy the current style (styles + visibility) to the clipboard as JSON, so it can
+  // be pasted into the Setup ▸ style pane and saved as part of a preset.
+  async function copyToClipboard() {
+    if (!count) { flash('복사할 내용이 없습니다'); return }
+    const text = JSON.stringify(pack(styles, hidden), null, 2)
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text)
+      else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove() }
+      flash('복사됨 — Setup ▸ style 에 붙여넣기')
+    } catch { flash('복사 실패 — 브라우저 권한을 확인하세요') }
+  }
+
   function download() {
     if (!count) { flash('저장할 내용이 없습니다'); return }
     const blob = new Blob([JSON.stringify(pack(styles, hidden), null, 2)], { type: 'application/json' })
@@ -113,6 +125,7 @@ export default function StylePresets({ styles, hidden, onApply }) {
       </div>
 
       <div className="spactions">
+        <button className="sbtn" onClick={copyToClipboard} disabled={!count}>⧉ 복사하기</button>
         <button className="sbtn" onClick={download} disabled={!count}>⬇ 다운로드</button>
         <button className="sbtn" onClick={() => fileRef.current?.click()}>⬆ 파일 불러오기</button>
         <input ref={fileRef} type="file" accept="application/json,.json" hidden

@@ -93,6 +93,13 @@ main.hidden { display: none; }
 .railbtn.on { background: var(--accent); color: #fff; }
 /* session action buttons in the dock (below a divider), with coloured icons */
 .railsep { height: 1px; align-self: stretch; margin: 5px 8px; background: var(--line); opacity: 0.9; }
+
+/* No spinner arrows on ANY number input — and our clearable .numinput text fields. */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+/* a number field left blank — flagged red so a save can point at it */
+.numinput.empty { border-color: #dc2626 !important; background: rgba(220, 38, 38, 0.06); }
 .railbtn.act { color: var(--fg); }
 .railbtn.act.start { color: #16a34a; }        /* green start */
 .railbtn.act.stop { color: #dc2626; }         /* red stop */
@@ -938,4 +945,93 @@ input.ucell { height: 30px; background: var(--bg); border: 1px solid var(--line)
   opacity: 0.5; font-size: 13px; pointer-events: none; text-align: center; padding: 12px; }
 
 /* ── Setup tab: dock rail + one wide floating box (reuses .filesrail/.filespanel) ── */
+.inputstab { display: flex; height: 100%; min-height: 0; background: var(--bg); }
+.setupbox { flex: 1; width: auto; min-width: 0; }        /* widen the shared .filespanel box */
+.setupbox.narrow { flex: none; width: 340px; }           /* preset box: compact, not stretched */
+/* every file box: name · save · load · list. Compact beside an editor; `fill` when
+   it is the workspace (preset — one box narrow, three boxes wide). */
+.setupfilebox { order: 1; flex: none; width: 280px; max-width: 280px; }
+.setupfilebox.fill { flex: 1 1 0; width: auto; max-width: 280px; }
+.setupeditor { order: 2; }                               /* editor / style pane: always to the right */
+
+/* preset sub-type selector (system / shared / user) — narrow fallback only */
+.preseg { display: flex; gap: 4px; }
+.preseg button { flex: 1; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  cursor: pointer; font-size: 11.5px; padding: 5px 6px; border-radius: 7px; text-transform: capitalize; }
+.preseg button:hover { background: var(--hover); }
+.preseg button.on { background: var(--accent-weak); border-color: var(--accent); color: var(--fg); font-weight: 600; }
+
+/* stacked save / load buttons above the list */
+.filsavebtn, .filloadbtn { align-self: stretch; }
+.filbtns { display: flex; gap: 6px; }
+.filbtns .sbtn { flex: 1; }
+.sbtn.stop { background: #dc2626; border-color: #dc2626; color: #fff; }
+.sbtn.stop:hover { background: #b91c1c; }
+/* when the box fills the workspace, let its list grow past the 42vh cap */
+.setupfilebox.fill .fillist { max-height: none; flex: 1; }
+.setupfilebox.fill .setupbody { min-height: 0; }
+/* menu-only hint (preset selected while the file box is closed) */
+.setuphint .setupbody { align-items: flex-start; justify-content: center; gap: 14px; }
+
+/* style preview pane: guidance banner shown while the JSON box is empty */
+.styleguide { padding: 12px 14px; font-size: 12.5px; line-height: 1.65; color: var(--muted);
   border-bottom: 1px solid var(--line); }
+.styleguide b { color: var(--fg); }
+
+/* file (project) menu: name field + a library browser (like the 파일 tab) */
+.filproj { display: flex; flex-direction: column; gap: 7px; }
+.fillabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.filname { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--field);
+  color: var(--fg); font-size: 13px; outline: none; }
+.filname:focus { border-color: var(--accent); }
+.filsep { height: 1px; background: var(--line); margin: 2px 0; }
+.filtree { display: flex; flex-direction: column; gap: 2px; }
+.filnhead { display: flex; align-items: center; gap: 6px; }
+.filntog { flex: 1; display: flex; align-items: center; gap: 6px; border: 0; background: transparent;
+  color: var(--fg); cursor: pointer; padding: 6px 4px; border-radius: 7px; text-align: left; }
+.filntog:hover { background: var(--hover); }
+.filntog.on { background: var(--hover); font-weight: 600; }
+.filnname { flex: 1; font-size: 12.5px; }
+.filncount { min-width: 18px; text-align: center; color: var(--muted); font-size: 10.5px;
+  background: var(--field); border: 1px solid var(--line); border-radius: 999px; padding: 0 5px; }
+.sbtn.tiny { padding: 3px 8px; font-size: 11px; flex: none; }
+/* the selected folder's contents, below the load button */
+.fillist { display: flex; flex-direction: column; gap: 1px; margin-top: 2px; max-height: 42vh; overflow-y: auto; }
+.filempty { color: var(--muted); font-size: 11.5px; padding: 6px 4px; }
+.filrow { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px;
+  cursor: pointer; font-size: 12px; }
+.filrow:hover { background: var(--hover); }
+.filrow.on { background: var(--accent); color: #fff; }
+.filrowname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filrowdel { border: 0; background: transparent; color: inherit; opacity: 0.5; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; }
+.filrowdel:hover { opacity: 1; color: #dc2626; }
+.filloadbtn { align-self: stretch; }
+.setupbox .fptitle { text-transform: none; letter-spacing: 0.01em; font-size: 13px; color: var(--fg); }
+.setupbox .editorarea { flex: 1; min-height: 0; padding: 12px 14px; gap: 10px; }
+.setupbody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex;
+  flex-direction: column; gap: 12px; }
+.newsetup { align-self: stretch; }
+
+/* per-slot save/load library (collapsible strip in each editor box) */
+.anlist { display: flex; flex-direction: column; gap: 10px; }
+.andesc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.andesc code { font-family: var(--font-mono); font-size: 11.5px; background: var(--field);
+  padding: 1px 4px; border-radius: 4px; }
+.ancard { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; display: flex;
+  flex-direction: column; gap: 6px; background: var(--field); }
+.anrow { display: flex; align-items: center; gap: 8px; }
+.anrow label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  font-size: 10.5px; color: var(--muted); font-family: var(--font-mono); }
+.anrow label input { width: 100%; box-sizing: border-box; }
+.anrow input, .antitle { padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--fg); font-family: var(--font-mono); font-size: 12px; }
+.anhead { gap: 6px; }
+.antitle { flex: 1; font-weight: 600; }
+.anrm { flex: none; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 13px; padding: 3px 7px; border-radius: 6px; }
+.anrm:hover { background: var(--hover); color: #c0392b; }
+.anbins { gap: 5px; }
+.anbins span { font-size: 10.5px; color: var(--muted); font-family: var(--font-mono); width: 44px; flex: none; }
+.anbins input { flex: 1; min-width: 0; }
+.anadd { align-self: flex-start; }
