@@ -120,6 +120,39 @@ def _post(path: str, body: dict) -> dict:
         raise RuntimeError(_http_error_message(exc)) from exc
 
 
+def session_start(argv: list[str], cwd: str | None = None, name: str | None = None,
+                  geom_cmd: str | None = None) -> dict:
+    """Start a persistent interactive session in the runner. `cwd` is a path relative
+    to the shared volume (the caller stages the workspace there). `geom_cmd` is the
+    `/det/export_geometry <rel>` command the runner sends once the G4 terminal is
+    ready. Returns {"session_id": ...}."""
+    return _post("/session", {"argv": argv, "cwd": cwd, "name": name, "geom_cmd": geom_cmd})
+
+
+def session_status(sid: str) -> dict:
+    return _get(f"/session/{sid}")
+
+
+def session_log(sid: str, since: int = 0) -> dict:
+    return _get(f"/session/{sid}/log?since={int(since)}")
+
+
+def session_beamon(sid: str, n: int) -> dict:
+    return _post(f"/session/{sid}/beamon", {"n": int(n)})
+
+
+def session_verbose(sid: str, on: bool) -> dict:
+    return _post(f"/session/{sid}/verbose", {"on": bool(on)})
+
+
+def session_stop(sid: str, force: bool = False) -> dict:
+    return _post(f"/session/{sid}/stop", {"force": bool(force)})
+
+
+# ── server-side ROOT draw (browser viewer can't stream nptool's unsplit objects) ──
+RENDER_DIR = SCI_SHARED_DIR / "render"     # .root files staged here for the runner to draw
+
+
 def stage_file_for_render(user_key, abspath) -> str:
     """Copy a user's .root onto the shared volume (cached by size+mtime) so the runner
     can read it, and return the path RELATIVE to the shared volume (what the runner

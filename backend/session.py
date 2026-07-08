@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 import config
 import inputs
 import settings
+import sim_client
 
 # states
 STARTING = "starting"   # process up, Geant4 still initialising (no Idle> yet)
@@ -89,6 +90,10 @@ class Session:
         ri = inputs.next_run(self.user_key, self.user_name)
         self.project, self.run, self.output = ri["project"], ri["run"], ri["run_id"]
         self.paths = inputs.run_paths(self.user_key, ri["run_id"])
+        # Keep ONE persistent geometry dump in outputs/ (fixed name) — each new run
+        # overwrites it, so exactly one geometry file is ever kept (the latest).
+        self.paths["geom"] = _outs / inputs.GEOM_NAME
+        self.paths["geom_rel"] = f"../outputs/{inputs.GEOM_NAME}"
         for p in (self.paths["live_stream"], self.paths["geom"]):
             try:
                 p.unlink()                      # clear any stale artifacts
@@ -161,28 +166,47 @@ class Session:
             self.state = RUNNING
         self._send(f"/run/beamOn {n}")
 
-    def stop(self) -> None:
+    def set_tracking_verbose(self, on: bool) -> None:
+        """Toggle Geant4 per-step tracking output on the live terminal. Only ever the
+        fixed `/tracking/verbose 0|1` command — never user text. Applies to the next
+        /run/beamOn (queued in stdin if sent mid-run)."""
         if self.alive():
-            try:
-                self._proc.stdin.write(b"exit\n")
-                self._proc.stdin.flush()
-            except (BrokenPipeError, OSError):
-                pass
-            try:
-                self._proc.wait(timeout=8)
-            except subprocess.TimeoutExpired:
+            self._add(f"» /tracking/verbose {1 if on else 0}")
+            self._send(f"/tracking/verbose {1 if on else 0}")
+
+    def _created_files(self) -> list[str]:
+        """Output files this session left in outputs/ (names only), for the stop notice."""
+        out = inputs.outputs_dir(self.user_key)
+        return [n for n in (f"{self.output}.root", inputs.GEOM_NAME) if (out / n).exists()]
+
+    def stop(self, force: bool = False) -> list[str]:
+        if self.alive():
+            if force:
+                # abort a long/heavy run NOW — SIGKILL the process group, no graceful wait
                 try:
                     os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError):
                     pass
+            else:
+                try:
+                    self._proc.stdin.write(b"exit\n")
+                    self._proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    pass
+                try:
+                    self._proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
         self._set(STOPPED)
-        # Drop the transient live stream + the viewer geometry dump (geom.json is only
-        # needed while the 3D viewer is live; the ROOT result is what's kept).
-        for k in ("live_stream", "geom"):
-            try:
-                self.paths[k].unlink()
-            except (FileNotFoundError, AttributeError, KeyError):
-                pass
+        # Drop only the transient live stream; KEEP the geometry dump + ROOT in outputs/.
+        try:
+            self.paths["live_stream"].unlink()
+        except (FileNotFoundError, AttributeError, KeyError):
+            pass
+        return self._created_files()
 
     def to_dict(self) -> dict:
         with self._lock:
@@ -197,6 +221,129 @@ class Session:
         with self._lock:
             since = max(0, min(since, len(self.lines)))
             return {"lines": self.lines[since:], "next": len(self.lines), "state": self.state}
+
+
+class SciSession:
+    """A session whose `npsimulation -N` process lives in the sci-runner container
+    (server deploy) instead of locally — the portal has no nptool binary. Mirrors the
+    Session interface the API depends on (to_dict / alive / run_beamon / log_since /
+    stop / .paths) but proxies every operation over HTTP. The workspace is staged on
+    the SHARED volume, so the geometry JSON + live stream the runner writes are read
+    straight off disk by the scene endpoint — exactly like the batch path
+    (worker._run_job_sci)."""
+
+    def __init__(self, user_key: str, user_name: str = ""):
+        self.id = uuid.uuid4().hex[:12]
+        self.user_key = user_key
+        self.user_name = user_name
+        self.created_at = _now()
+        self.runs = 0
+        self.state = STARTING
+        self._sid: str | None = None
+
+        # Stage inputs/ (+ empty outputs/) on the shared volume — same layout the
+        # local path runs against, so npsimulation's relative args resolve identically.
+        ins, _outs, man = inputs.prepare_inplace(user_key)
+        self.example = man.get("example", "")
+        ri = inputs.next_run(user_key, user_name)
+        self.project, self.run, self.output = ri["project"], ri["run"], ri["run_id"]
+        rp = inputs.run_paths(user_key, ri["run_id"])
+
+        self._stage = sim_client.staging_dir(f"sess-{self.id}")
+        stage_in, stage_out = self._stage / "inputs", self._stage / "outputs"
+        shutil.rmtree(self._stage, ignore_errors=True)
+        shutil.copytree(ins, stage_in)
+        stage_out.mkdir(parents=True, exist_ok=True)
+
+        # Artifact paths the scene endpoint reads — on the shared volume (portal /sci),
+        # where the runner (its /data mount of the same volume) writes them.
+        # ONE persistent geometry dump (fixed name) — overwritten each run, persisted
+        # into the user's real outputs/ on stop() (below).
+        self.paths = {**rp,
+                      "geom": stage_out / inputs.GEOM_NAME,
+                      "geom_rel": f"../outputs/{inputs.GEOM_NAME}",
+                      "live_stream": stage_in / inputs.STREAM_NAME}
+
+        argv = ["npsimulation", "-D", man["detector"], "-E", man["reaction"],
+                "-O", rp["name"], "-N", "--record-track"]
+        if config.ONLINE_EVENTS > 0:
+            argv += ["--online-data-streaming", str(config.ONLINE_EVENTS)]
+        sub = sim_client.session_start(
+            argv, cwd=sim_client.rel_to_shared(stage_in), name=ri["run_id"],
+            geom_cmd=f"/det/export_geometry {self.paths['geom_rel']}")
+        self._sid = sub["session_id"]
+
+    def _set(self, state: str) -> None:      # SessionManager.get() calls this on a dead session
+        if self.state != STOPPED:
+            self.state = state
+
+    def _status(self) -> dict:
+        if self._sid is None:
+            return {"state": self.state, "alive": False, "runs": self.runs}
+        try:
+            st = sim_client.session_status(self._sid)
+            self.state = st.get("state", self.state)
+            self.runs = st.get("runs", self.runs)
+            return st
+        except Exception:                          # runner unreachable → treat as gone
+            return {"state": self.state, "alive": False, "runs": self.runs}
+
+    def alive(self) -> bool:
+        return bool(self._status().get("alive"))
+
+    def run_beamon(self, n: int) -> None:
+        try:
+            st = sim_client.session_beamon(self._sid, n)
+        except Exception as exc:                   # 409 (not idle) or transport error
+            raise RuntimeError(str(exc))
+        self.state = st.get("state", RUNNING)
+        self.runs = st.get("runs", self.runs)
+
+    def set_tracking_verbose(self, on: bool) -> None:
+        """Toggle Geant4 /tracking/verbose on the runner-hosted terminal (fixed command)."""
+        if self._sid:
+            sim_client.session_verbose(self._sid, on)
+
+    def stop(self, force: bool = False) -> list[str]:
+        if self._sid:
+            try:
+                sim_client.session_stop(self._sid, force)
+            except Exception:
+                pass
+        # Persist the ROOT + geometry dump into the user's real outputs/ (the staged
+        # copies are on the transient shared volume); then drop the staging dir.
+        out = inputs.outputs_dir(self.user_key)
+        created: list[str] = []
+        for src in (self._stage / "outputs" / f"{self.output}.root",
+                    self._stage / "outputs" / inputs.GEOM_NAME):
+            try:
+                if src.exists():
+                    shutil.copy2(src, out / src.name)
+                    created.append(src.name)
+            except OSError:
+                pass
+        shutil.rmtree(self._stage, ignore_errors=True)
+        self.state = STOPPED
+        return created
+
+    def to_dict(self) -> dict:
+        st = self._status()
+        return {
+            "id": self.id, "example": self.example, "state": self.state,
+            "runs": self.runs, "created_at": self.created_at,
+            "log_len": 0, "alive": bool(st.get("alive")),
+            "project": self.project, "run": self.run, "output": self.output,
+        }
+
+    def log_since(self, since: int) -> dict:
+        if self._sid is None:
+            return {"lines": [], "next": since, "state": self.state}
+        try:
+            r = sim_client.session_log(self._sid, since)
+            self.state = r.get("state", self.state)
+            return r
+        except Exception:
+            return {"lines": [], "next": since, "state": self.state}
 
 
 class SessionManager:
@@ -221,17 +368,20 @@ class SessionManager:
                 return existing               # one session per user
             if self._live_count() >= settings.max_sessions():
                 raise RuntimeError("server session limit reached — try again later")
-            s = Session(user_key, user_name)
+            # Server deploy delegates to sci-runner (which has nptool); dev runs locally.
+            impl = SciSession if config.RUNNER == "sci" else Session
+            s = impl(user_key, user_name)
             self._sessions[user_key] = s
             return s
 
-    def stop(self, user_key: str) -> bool:
+    def stop(self, user_key: str, force: bool = False) -> list[str] | None:
+        """Stop the user's session and return the output files it left (names), or None
+        if there was no session. `force` SIGKILLs immediately (abort a heavy run)."""
         with self._lock:
             s = self._sessions.pop(user_key, None)
         if s:
-            s.stop()
-            return True
-        return False
+            return s.stop(force) or []
+        return None
 
 
 manager = SessionManager()

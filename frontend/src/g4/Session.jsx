@@ -1,5 +1,10 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { sessionStatus, sessionStart, sessionRun, sessionLog, sessionStop } from './api.js'
+import { sessionStatus, sessionStart, sessionRun, sessionLog, sessionStop, sessionTrackingVerbose } from './api.js'
+
+// The app's official notice channel: a transient toast under the account button
+// (Shell listens for `nptoy-notify` and also logs it into the drawer).
+const notify = (text, level = 'info') =>
+  window.dispatchEvent(new CustomEvent('nptoy-notify', { detail: { text, level } }))
 
 // Live interactive nptool session: Start a `npsimulation -N` on the current input
 // workspace, then push `/run/beamOn <n>` one at a time and watch the terminal stream.
@@ -10,6 +15,7 @@ export default forwardRef(function Session({ onState } = {}, ref) {
   const [n, setN] = useState(1)
   const [lines, setLines] = useState([])
   const [error, setError] = useState(null)
+  const [verbose, setVerbose] = useState(false)  // /tracking/verbose 1 ↔ 0
   const sinceRef = useRef(0)
   const logRef = useRef(null)
 
@@ -45,17 +51,27 @@ export default forwardRef(function Session({ onState } = {}, ref) {
   }
 
   async function doStart() {
-    setError(null); setLines([]); sinceRef.current = 0
+    setError(null); setLines([]); sinceRef.current = 0; setVerbose(false)
     try { setSess(await sessionStart()) } catch (e) { setError(authMsg(e)) }
   }
-  async function doStop() {
+  async function doStop(force = false) {
     setError(null)
-    try { await sessionStop() } catch (e) {}
-    setSess(null); setLines([]); sinceRef.current = 0
+    let res = null
+    try { res = await sessionStop(force) } catch (e) {}
+    setSess(null); setLines([]); sinceRef.current = 0; setVerbose(false)
+    // Report the files the session left in outputs/ via the top-right toast.
+    const files = res && res.files
+    if (force) notify('세션을 강제 종료했습니다' + (files && files.length ? ' — 저장: ' + files.join(', ') : ''))
+    else if (files && files.length) notify('저장됨: ' + files.join(', '))
   }
   async function doRun(count) {
     setError(null)
     try { setSess(await sessionRun(Number(count ?? n))) } catch (e) { setError(authMsg(e)) }
+  }
+  async function toggleVerbose() {
+    const next = !verbose
+    setVerbose(next)   // optimistic — revert if the call fails
+    try { await sessionTrackingVerbose(next) } catch (e) { setVerbose(!next); setError(authMsg(e)) }
   }
 
   const state = sess?.state
@@ -79,9 +95,12 @@ export default forwardRef(function Session({ onState } = {}, ref) {
     <div className="session">
       <div className="srow">
         {alive
-          ? <button className="sbtn stop" onClick={doStop}>stop</button>
+          ? <button className="sbtn stop" onClick={() => doStop(false)}>stop</button>
           : <button className="sbtn go" onClick={doStart}>start</button>}
         <span className="wsinfo">runs the input workspace ▸</span>
+        {/* far right, away from stop, so it isn't hit by accident */}
+        {alive && <button className="sbtn kill" title="즉시 강제 종료 (SIGKILL) — 오래 도는 job 을 바로 중단"
+          onClick={() => doStop(true)}>강제 종료</button>}
       </div>
 
       <div className="sstat">
@@ -97,6 +116,11 @@ export default forwardRef(function Session({ onState } = {}, ref) {
           onKeyDown={(e) => { if (e.key === 'Enter' && idle) { e.preventDefault(); doRun() } }} />
         <button className="sbtn go" onClick={() => doRun()} disabled={!idle}>run</button>
       </div>
+
+      <label className={`vbrow ${alive ? '' : 'off'}`} title="Geant4 /tracking/verbose — 스텝별 트래킹 로그를 켭니다 (다음 run부터 적용)">
+        <input type="checkbox" checked={verbose} disabled={!alive} onChange={toggleVerbose} />
+        <span>tracking verbose {verbose ? '1' : '0'}</span>
+      </label>
 
       {error && <div className="serr">⚠ {error}</div>}
 

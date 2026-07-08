@@ -587,6 +587,9 @@ input.ucell { height: 30px; background: var(--bg); border: 1px solid var(--line)
 .sbtn.go:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .sbtn.stop { background: var(--danger-weak); border-color: var(--danger-line); color: var(--danger); font-weight: 600; }
 .sbtn.stop:hover { background: rgba(210, 69, 58, 0.2); }
+/* force-kill: solid red so it's clearly the escalation from a graceful stop */
+.sbtn.kill { background: #dc2626; border-color: #dc2626; color: #fff; font-weight: 700; }
+.sbtn.kill:hover { background: #b91c1c; border-color: #b91c1c; }
 .sbtn:disabled { opacity: 0.45; cursor: not-allowed; }
 .sbtn:disabled:hover { background: var(--field); }
 .sbtn.go:disabled:hover { background: var(--accent); }

@@ -189,6 +189,10 @@ def write_slot(user_key: str, slot: str, content: str) -> None:
 
 # ── run setup (in-place; no per-run copy) ─────────────────────────────────────
 STREAM_NAME = "online_stream.dat"      # nptool writes this in cwd (= inputs/); transient
+# A live session keeps ONE geometry dump in outputs/ (fixed name → each new run
+# overwrites it, so there's exactly one file, always the latest geometry). It's a
+# custom flat-JSON dump (viewer-only), not GDML/glTF.
+GEOM_NAME = "geometry.json"
 
 
 def prepare_inplace(user_key: str) -> tuple[Path, Path, dict]:

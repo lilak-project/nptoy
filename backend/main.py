@@ -272,6 +272,7 @@ def inputs_state(user: PortalUser = Depends(require_user)) -> dict:
         "run": inputs.next_run(user.user_key, user.username)["run"],
         "example": inputs.manifest(user.user_key).get("example", ""),
         "examples": inputs.examples(),
+        "blank": [s["key"] for s in inputs.SLOTS if inputs.slot_blank(user.user_key, s["key"])],
     }
 
 
@@ -336,9 +337,7 @@ def configs_save(body: SaveConfig, user: PortalUser = Depends(require_user)) -> 
 
 @app.post("/api/configs/{cid}/load")
 def configs_load(cid: str, user: PortalUser = Depends(require_user)) -> dict:
-    s = session_mod.manager.get(user.user_key)
-    if s and s.alive():
-        raise HTTPException(status_code=409, detail="세션 실행 중에는 불러올 수 없습니다.")
+    # Safe during a live session (see library_load): only affects the NEXT run.
     try:
         return {"manifest": saves_mod.load(user.user_key, user.username, cid)}
     except KeyError:
@@ -638,6 +637,10 @@ class RunBeamOn(BaseModel):
     n: int
 
 
+class TrackingVerbose(BaseModel):
+    on: bool
+
+
 @app.get("/api/session")
 def session_status(user: PortalUser = Depends(require_user)) -> dict:
     s = session_mod.manager.get(user.user_key)
@@ -694,9 +697,27 @@ def session_scene(tracks_from: int = 0, tracks_count: int = 0,
                                           tracks_from=tracks_from, tracks_count=tracks_count or None))
 
 
+@app.post("/api/session/tracking-verbose")
+def session_tracking_verbose(body: TrackingVerbose, user: PortalUser = Depends(require_user)) -> dict:
+    """Toggle Geant4 /tracking/verbose on the live session (0|1). Fixed command only —
+    affects the NEXT /run/beamOn's per-step log output."""
+    s = session_mod.manager.get(user.user_key)
+    if not s or not s.alive():
+        raise HTTPException(status_code=409, detail="실행 중인 세션이 없습니다.")
+    s.set_tracking_verbose(bool(body.on))
+    return {"ok": True, "verbose": bool(body.on)}
+
+
+class StopSession(BaseModel):
+    force: bool = False
+
+
 @app.post("/api/session/stop")
-def session_stop(user: PortalUser = Depends(require_user)) -> dict:
-    return {"stopped": session_mod.manager.stop(user.user_key)}
+def session_stop(body: StopSession | None = None, user: PortalUser = Depends(require_user)) -> dict:
+    # force=True aborts a long/heavy run immediately (SIGKILL, no graceful drain).
+    force = bool(body.force) if body else False
+    files = session_mod.manager.stop(user.user_key, force=force)
+    return {"stopped": files is not None, "files": files or []}
 
 
 # ── file browser (read-only, sandboxed to the user's data folder) ─────────────
