@@ -1,0 +1,20 @@
+{
+  "plots": [
+    {
+      "title": "PMT photons",
+      "x": "CSSU.fCSSU_PMT_PhotonCount",
+      "opt": "hist"
+    },
+    {
+      "title": "PMT photons vs PMT",
+      "x": "CSSU.fCSSU_PMT_Number",
+      "y": "CSSU.fCSSU_PMT_PhotonCount",
+      "opt": "colz"
+    },
+    {
+      "title": "Scintillator energy",
+      "x": "CSSU.fCSSU_Energy",
+      "opt": "hist"
+    }
+  ]
+}

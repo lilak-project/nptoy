@@ -228,6 +228,62 @@ def build_one(key: str, proj: dict) -> bool:
     return True
 
 
+def _san_key(name: str) -> str:
+    """Preset dir name: keep it a safe, relocatable folder name."""
+    key = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip()).strip("._-")
+    return key[:64]
+
+
+def save_common(user_key: str, name: str, overwrite: bool = False) -> str:
+    """Publish the caller's current inputs/ as a SYSTEM preset (common/<name>/) — a
+    manager-curated default everyone sees. Copies the whole input workspace (detector /
+    reaction / physics / project.config / cross-section / analysis / manifest), drops
+    the transient live stream, and normalises the output dir + manifest example key.
+    Raises ValueError (bad/reserved name), FileNotFoundError (no inputs), FileExistsError
+    (name taken and not overwriting)."""
+    import inputs as _inputs   # function-level: inputs imports common (avoid a cycle)
+    key = _san_key(name)
+    if not key or key in _RESERVED:
+        raise ValueError(name)
+    src = _inputs.root(user_key)
+    if not (src / MANIFEST).exists() and not (src / DETECTOR).exists():
+        raise FileNotFoundError(name)
+    dst = preset_dir(key)
+    if dst.exists():
+        if not overwrite:
+            raise FileExistsError(key)
+        shutil.rmtree(dst)
+    skip = {_inputs.STREAM_NAME, "outputs", "export.txt"}
+    shutil.copytree(src, dst, ignore=lambda d, names: [
+        n for n in names if n in skip or n.endswith((".stream", ".geom.json"))])
+    pc = dst / PROJECT_CONFIG
+    if pc.exists():
+        set_output_dir(pc)
+    man = dst / MANIFEST
+    try:
+        m = json.loads(man.read_text()) if man.exists() else {}
+    except (OSError, ValueError):
+        m = {}
+    m.setdefault("detector", DETECTOR); m.setdefault("reaction", REACTION)
+    m.setdefault("physics", PHYSICS); m.setdefault("analysis", ANALYSIS)
+    m["example"] = key
+    man.write_text(json.dumps(m, indent=2))
+    return key
+
+
+def delete_common(name: str) -> bool:
+    """Remove a system preset (common/<name>/). Manager-curated. Returns True if a
+    preset was deleted. Refuses reserved/invalid names."""
+    key = _san_key(name)
+    if not key or key in _RESERVED:
+        raise ValueError(name)
+    d = preset_dir(key)
+    if d.is_dir():
+        shutil.rmtree(d)
+        return True
+    return False
+
+
 def _stash_scripts() -> None:
     """Copy the (currently unused) ROOT analysis scripts into common/scripts/ once."""
     if SCRIPTS_DIR.exists():

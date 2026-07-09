@@ -88,9 +88,18 @@ PROJECTS = {
 DEFAULT_PROJECT = next(iter(PROJECTS))
 MAX_SESSIONS = int(os.environ.get("NPTOY_MAX_SESSIONS", "4"))     # global live cap
 # How many events per /run/beamOn nptool streams to the live viewer text file
-# (`--online-data-streaming N`). Small = light + fast live update.
+# (`--online-data-streaming N`). Small = light + fast live update. Sparse setups
+# can need a larger sample before the viewer sees detector hits.
 ONLINE_EVENTS = int(os.environ.get("NPTOY_ONLINE_EVENTS", "10"))
+ONLINE_EVENTS_BY_EXAMPLE = {
+    "W1Mask": int(os.environ.get("NPTOY_W1MASK_ONLINE_EVENTS", "1000")),
+}
 SESSION_MAX_BEAMON = int(os.environ.get("NPTOY_SESSION_MAX_BEAMON", "100000"))
+
+
+def online_events_for(manifest: dict | None) -> int:
+    example = (manifest or {}).get("example")
+    return int(ONLINE_EVENTS_BY_EXAMPLE.get(example, ONLINE_EVENTS))
 
 
 def ensure_dirs() -> None:

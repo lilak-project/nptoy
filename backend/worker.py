@@ -24,6 +24,7 @@ import params as params_mod
 import session as session_mod
 import settings
 import sim_client
+import simgate
 import workspace
 
 # Shared state between the worker loop and the cancel endpoint. Only the worker
@@ -86,6 +87,22 @@ def _next_queued(session) -> db.Job | None:
 
 
 def _run_job(session, job: db.Job) -> None:
+    # Hold one global sim slot for the whole run, so batch jobs + interactive
+    # sessions together never exceed NPTOY_MAX_CONCURRENT_SIMS live simulators
+    # (host-memory guard). Blocks here while interactive sessions saturate the
+    # gate; the job stays QUEUED until a slot frees.
+    with simgate.slot():
+        # A job cancelled while we were blocked on the gate must not still run.
+        try:
+            session.refresh(job)
+        except Exception:
+            pass
+        if job.status in db.TERMINAL:
+            return
+        _run_job_impl(session, job)
+
+
+def _run_job_impl(session, job: db.Job) -> None:
     # Server deploy: delegate to the sci-runner container (ROOT+Geant4+nptool),
     # which the portal container lacks. Everything else (queue, statuses, outputs)
     # is identical either way.
@@ -114,7 +131,7 @@ def _run_job(session, job: db.Job) -> None:
     rp["mac"].write_text(
         f"/det/export_geometry {rp['geom_rel']}\n" + params_mod.build_macro(job.params))
     cmd = session_mod.nptool_cmd(man, rp["name"], batch_macro=rp["mac_rel"],
-                                 online=config.ONLINE_EVENTS)
+                                 online=config.online_events_for(man))
     logf = open(rp["log"], "w")
     proc = subprocess.Popen(
         ["bash", "-lc", cmd], cwd=str(ins),
@@ -197,8 +214,9 @@ def _run_job_sci(session, job: db.Job) -> None:
     #    runner's env already has ROOT+Geant4+nptool sourced), cwd = staged inputs/.
     argv = ["npsimulation", "-D", man["detector"], "-E", man["reaction"],
             "-O", rp["name"], "-B", rp["mac_rel"], "--record-track"]
-    if config.ONLINE_EVENTS > 0:
-        argv += ["--online-data-streaming", str(config.ONLINE_EVENTS)]
+    online = config.online_events_for(man)
+    if online > 0:
+        argv += ["--online-data-streaming", str(online)]
     timeout_sec = settings.job_timeout_sec(job.user_key)
     try:
         sub = sim_client.submit(argv, name=rp["name"], timeout=timeout_sec,

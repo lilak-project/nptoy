@@ -228,6 +228,36 @@ def next_run(user_key: str, user_name: str) -> dict:
     return {"project": proj, "user": usr, "run": n, "run_id": f"{proj}_{n}.{usr}.sim"}
 
 
+# A live VIEWER session's artifacts are throwaway: they live in outputs/viewer/ under
+# fixed names (overwritten each session), so they never collide with a run number,
+# never show up in the Files-tab run list (list_runs only walks top-level files, not
+# this subdir), and carry no data worth keeping — the 3D viewer reads geom + the live
+# stream off disk while the session runs; real data comes from batch runs instead.
+VIEWER_SUBDIR = "viewer"
+
+
+def viewer_dir(user_key: str) -> Path:
+    return outputs_dir(user_key) / VIEWER_SUBDIR
+
+
+def viewer_run_paths(user_key: str) -> dict:
+    """Disposable per-session artifact paths under outputs/viewer/ (fixed basenames).
+    `name`/`geom_rel` are relative to ../outputs (SimulationOutput) so `-O` and
+    `/det/export_geometry` land in the viewer subdir."""
+    o = outputs_dir(user_key)
+    vd = o / VIEWER_SUBDIR
+    stem = f"{VIEWER_SUBDIR}/live"                    # relative to ../outputs
+    return {
+        "dir": vd,
+        "name": f"{stem}.root",                      # -O basename → ../outputs/viewer/live.root
+        "root": vd / "live.root",
+        "geom": vd / "live.geom.json",               # flat geometry JSON (viewer)
+        "geom_rel": f"../outputs/{stem}.geom.json",  # for /det/export_geometry (cwd=inputs)
+        "stream": vd / "live.stream",                # persisted copy of online_stream.dat
+        "live_stream": root(user_key) / STREAM_NAME, # live file nptool writes (cwd)
+    }
+
+
 def run_paths(user_key: str, run_id: str) -> dict:
     """Per-run artifact paths under outputs/. `run_id` is e.g. `session_<id>` or
     `job_<id>`. The ROOT basename (run_id.root) is what `-O` gets; nptool prepends

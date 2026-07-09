@@ -28,6 +28,7 @@ import config
 import inputs
 import settings
 import sim_client
+import simgate
 
 def _human_size(n: int) -> str:
     x = float(n)
@@ -110,21 +111,20 @@ class Session:
         ins, _outs, man = inputs.prepare_inplace(self.user_key)
         self.example = man.get("example", "")
         self.workdir = ins
-        # Name outputs {project}_{run}.{user}.sim.root with a per-project run number
-        # that never collides with a previous run of the same project.
-        ri = inputs.next_run(self.user_key, self.user_name)
-        self.project, self.run, self.output = ri["project"], ri["run"], ri["run_id"]
-        self.paths = inputs.run_paths(self.user_key, ri["run_id"])
-        # Keep ONE persistent geometry dump in outputs/ (fixed name) — each new run
-        # overwrites it, so exactly one geometry file is ever kept (the latest).
-        self.paths["geom"] = _outs / inputs.GEOM_NAME
-        self.paths["geom_rel"] = f"../outputs/{inputs.GEOM_NAME}"
+        # A session is a VIEWER run: its ROOT/geometry go to the disposable outputs/viewer/
+        # dir under fixed names (overwritten each session), so they never collide with a
+        # run number and never clutter the Files-tab output list. Real, kept data comes
+        # from batch runs instead.
+        self.project = inputs._sanitize(inputs.setup_name(self.user_key))
+        self.run, self.output = None, inputs.VIEWER_SUBDIR   # viewer run → no run number
+        self.paths = inputs.viewer_run_paths(self.user_key)
+        self.paths["dir"].mkdir(parents=True, exist_ok=True)
         for p in (self.paths["live_stream"], self.paths["geom"]):
             try:
                 p.unlink()                      # clear any stale artifacts
             except FileNotFoundError:
                 pass
-        cmd = nptool_cmd(man, self.paths["name"], online=config.ONLINE_EVENTS)
+        cmd = nptool_cmd(man, self.paths["name"], online=config.online_events_for(man))
         self._proc = subprocess.Popen(
             ["bash", "-lc", cmd], cwd=str(ins),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -200,10 +200,9 @@ class Session:
             self._send(f"/tracking/verbose {1 if on else 0}")
 
     def _created_files(self) -> list[str]:
-        """Output files this session left in outputs/ (name · size [· events]), for the stop notice."""
-        out = inputs.outputs_dir(self.user_key)
-        return [_describe_output(out / n, out / n)
-                for n in (f"{self.output}.root", inputs.GEOM_NAME) if (out / n).exists()]
+        """A viewer session leaves only disposable artifacts in outputs/viewer/, so it
+        reports nothing to keep — the stop notice stays quiet (batch runs report files)."""
+        return []
 
     def stop(self, force: bool = False) -> list[str]:
         if self.alive():
@@ -227,7 +226,12 @@ class Session:
                     except (ProcessLookupError, PermissionError):
                         pass
         self._set(STOPPED)
-        # Drop only the transient live stream; KEEP the geometry dump + ROOT in outputs/.
+        # Persist the transient live stream beside the ROOT; KEEP geometry + ROOT in outputs/.
+        try:
+            if self.paths["live_stream"].exists():
+                shutil.copy2(self.paths["live_stream"], self.paths["stream"])
+        except (OSError, AttributeError, KeyError):
+            pass
         try:
             self.paths["live_stream"].unlink()
         except (FileNotFoundError, AttributeError, KeyError):
@@ -271,9 +275,10 @@ class SciSession:
         # local path runs against, so npsimulation's relative args resolve identically.
         ins, _outs, man = inputs.prepare_inplace(user_key)
         self.example = man.get("example", "")
-        ri = inputs.next_run(user_key, user_name)
-        self.project, self.run, self.output = ri["project"], ri["run"], ri["run_id"]
-        rp = inputs.run_paths(user_key, ri["run_id"])
+        # A session is a VIEWER run (see Session._start): disposable output, no run
+        # number, never persisted to the user's outputs/.
+        self.project = inputs._sanitize(inputs.setup_name(user_key))
+        self.run, self.output = None, inputs.VIEWER_SUBDIR   # viewer run → no run number
 
         self._stage = sim_client.staging_dir(f"sess-{self.id}")
         stage_in, stage_out = self._stage / "inputs", self._stage / "outputs"
@@ -281,21 +286,23 @@ class SciSession:
         shutil.copytree(ins, stage_in)
         stage_out.mkdir(parents=True, exist_ok=True)
 
-        # Artifact paths the scene endpoint reads — on the shared volume (portal /sci),
-        # where the runner (its /data mount of the same volume) writes them.
-        # ONE persistent geometry dump (fixed name) — overwritten each run, persisted
-        # into the user's real outputs/ on stop() (below).
-        self.paths = {**rp,
-                      "geom": stage_out / inputs.GEOM_NAME,
-                      "geom_rel": f"../outputs/{inputs.GEOM_NAME}",
-                      "live_stream": stage_in / inputs.STREAM_NAME}
+        # Disposable viewer artifacts, flat in the staged outputs dir on the shared
+        # volume (portal /sci ↔ runner /data). The scene endpoint reads geom + the live
+        # stream off disk while the session runs; staging is torn down on stop() and
+        # nothing is copied into the user's real outputs/.
+        self.paths = {
+            "geom": stage_out / "live.geom.json",
+            "geom_rel": "../outputs/live.geom.json",
+            "live_stream": stage_in / inputs.STREAM_NAME,
+        }
 
         argv = ["npsimulation", "-D", man["detector"], "-E", man["reaction"],
-                "-O", rp["name"], "-N", "--record-track"]
-        if config.ONLINE_EVENTS > 0:
-            argv += ["--online-data-streaming", str(config.ONLINE_EVENTS)]
+                "-O", "live.root", "-N", "--record-track"]
+        online = config.online_events_for(man)
+        if online > 0:
+            argv += ["--online-data-streaming", str(online)]
         sub = sim_client.session_start(
-            argv, cwd=sim_client.rel_to_shared(stage_in), name=ri["run_id"],
+            argv, cwd=sim_client.rel_to_shared(stage_in), name=self.output,
             geom_cmd=f"/det/export_geometry {self.paths['geom_rel']}")
         self._sid = sub["session_id"]
 
@@ -336,24 +343,11 @@ class SciSession:
                 sim_client.session_stop(self._sid, force)
             except Exception:
                 pass
-        # Persist the ROOT + geometry dump into the user's real outputs/ (the staged
-        # copies are on the transient shared volume); then drop the staging dir.
-        # Describe each with size (+ event count for the .root) so the stop notice makes
-        # an empty run obvious at a glance.
-        out = inputs.outputs_dir(self.user_key)
-        created: list[str] = []
-        for src in (self._stage / "outputs" / f"{self.output}.root",
-                    self._stage / "outputs" / inputs.GEOM_NAME):
-            try:
-                if src.exists():
-                    dst = out / src.name
-                    shutil.copy2(src, dst)
-                    created.append(_describe_output(dst, src))
-            except OSError:
-                pass
+        # Viewer session: nothing to keep. Drop the staged workspace (its disposable
+        # ROOT/geometry/stream go with it) and report no created files.
         shutil.rmtree(self._stage, ignore_errors=True)
         self.state = STOPPED
-        return created
+        return []
 
     def to_dict(self) -> dict:
         st = self._status()
@@ -378,6 +372,7 @@ class SciSession:
 class SessionManager:
     def __init__(self):
         self._sessions: dict[str, Session] = {}
+        self._held: set[str] = set()          # user_keys currently holding a simgate slot
         self._lock = threading.Lock()
 
     def get(self, user_key: str) -> Session | None:
@@ -387,20 +382,41 @@ class SessionManager:
                 s._set(STOPPED)
             return s
 
+    def _reap_locked(self) -> None:
+        """Drop dead sessions and hand their sim slots back to simgate. Caller
+        holds self._lock. Keeps slots from leaking when a session dies without an
+        explicit stop() (browser closed, runner killed the process)."""
+        for uk, s in list(self._sessions.items()):
+            if not s.alive():
+                s._set(STOPPED)
+                self._sessions.pop(uk, None)
+                if uk in self._held:
+                    self._held.discard(uk)
+                    simgate.release()
+
     def _live_count(self) -> int:
         return sum(1 for s in self._sessions.values() if s.alive())
 
     def start(self, user_key: str, user_name: str = "") -> Session:
         with self._lock:
+            self._reap_locked()               # free slots of any dead sessions first
             existing = self._sessions.get(user_key)
             if existing and existing.alive():
                 return existing               # one session per user
             if self._live_count() >= settings.max_sessions():
                 raise RuntimeError("server session limit reached — try again later")
+            # Global heavy-sim ceiling shared with batch jobs (guards host memory).
+            if not simgate.try_acquire():
+                raise RuntimeError("동시 시뮬레이션 한도에 도달했습니다 — 잠시 후 다시 시도하세요.")
             # Server deploy delegates to sci-runner (which has nptool); dev runs locally.
             impl = SciSession if config.RUNNER == "sci" else Session
-            s = impl(user_key, user_name)
+            try:
+                s = impl(user_key, user_name)
+            except Exception:
+                simgate.release()             # launch failed → don't strand the slot
+                raise
             self._sessions[user_key] = s
+            self._held.add(user_key)
             return s
 
     def stop(self, user_key: str, force: bool = False) -> list[str] | None:
@@ -408,6 +424,9 @@ class SessionManager:
         if there was no session. `force` SIGKILLs immediately (abort a heavy run)."""
         with self._lock:
             s = self._sessions.pop(user_key, None)
+            if user_key in self._held:        # return its global sim slot
+                self._held.discard(user_key)
+                simgate.release()
         if s:
             return s.stop(force) or []
         return None

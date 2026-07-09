@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { adminSettings, adminSettingsUpdate, adminClean, adminUserLimit } from './api.js'
+import { adminSettings, adminSettingsUpdate, adminClean, adminUserLimit, adminUserBatch } from './api.js'
 
 const MB = 1024 * 1024
 const fmt = (b) => (b >= 1024 * MB ? (b / 1024 / MB).toFixed(2) + ' GB'
@@ -40,6 +40,17 @@ export default function AdminTab() {
       })
       flash('전역 설정 저장됨'); load()
     } catch (e) { flash(e.message || String(e)) }
+  }
+  // Global batch default: allow everyone / restrict everyone. Individual overrides
+  // (below) win over this. Applies immediately.
+  async function saveBatchDefault(on) {
+    try { await adminSettingsUpdate({ batch_default: on }); flash(on ? '배치 전체 허용' : '배치 전체 제한'); load() }
+    catch (e) { flash(e.message || String(e)) }
+  }
+  // Per-user batch permission: true=허용, false=제한, null=기본(전역값 따름).
+  async function setUserBatch(key, allowed) {
+    try { await adminUserBatch(key, allowed); flash('배치 권한 저장됨 — ' + key.split('-')[0]); load() }
+    catch (e) { flash(e.message || String(e)) }
   }
   async function saveUser(key) {
     const r = rows[key]
@@ -86,6 +97,18 @@ export default function AdminTab() {
               onChange={(e) => setG({ ...g, max_sessions: e.target.value })} /></label>
           <button className="sbtn go" onClick={saveGlobal}>저장</button>
         </div>
+        <div className="admgrid" style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>배치 실행 기본 권한 (개별 설정이 우선)</span>
+            <div className="bseg">
+              <button className={data.settings.batch_default ? 'on' : ''}
+                onClick={() => saveBatchDefault(true)}>전체 허용</button>
+              <button className={!data.settings.batch_default ? 'on' : ''}
+                onClick={() => saveBatchDefault(false)}>전체 제한</button>
+            </div>
+          </div>
+          <span className="dnote" style={{ margin: 0 }}>제한 시 새 사용자는 viewer 실행만 가능합니다.</span>
+        </div>
       </div>
 
       <div className="admsect">
@@ -96,6 +119,7 @@ export default function AdminTab() {
             <span className="ucell">usage</span>
             <span className="ucell">쿼터 MB</span>
             <span className="ucell">타임아웃 s</span>
+            <span className="ucell">배치 권한</span>
             <span className="ucell acts"></span>
           </div>
           {(data.users || []).length === 0 && <div className="dnote">사용자가 없습니다.</div>}
@@ -104,12 +128,21 @@ export default function AdminTab() {
             const over = (u.used_bytes ?? u.bytes) >= u.quota_bytes
             return (
               <div className="urow" key={u.user_key}>
-                <span className="ucell wide" title={u.user_key}>{u.user_key.split('-')[0]}</span>
+                <span className="ucell wide" title={`${u.username || ''}${u.email ? ' · ' + u.email : ''}\n${u.user_key}`}>{u.username || u.name || u.user_key.split('-')[0]}</span>
                 <span className={`ucell ${over ? 'over' : ''}`}>{fmt(u.bytes)} / {fmt(u.quota_bytes)}</span>
                 <input className="ucell" type="number" placeholder="기본" value={r.q}
                   onChange={(e) => setRow(u.user_key, 'q', e.target.value)} />
                 <input className="ucell" type="number" placeholder="기본" value={r.t}
                   onChange={(e) => setRow(u.user_key, 't', e.target.value)} />
+                <span className="ucell bseg" title={`현재: ${u.batch_allowed ? '허용' : '제한'}`}>
+                  {(() => { const o = u.override?.batch_allowed
+                    return (<>
+                      <button className={o === true ? 'on' : ''} onClick={() => setUserBatch(u.user_key, true)}>허용</button>
+                      <button className={o === false ? 'on' : ''} onClick={() => setUserBatch(u.user_key, false)}>제한</button>
+                      <button className={o === undefined || o === null ? 'on' : ''}
+                        onClick={() => setUserBatch(u.user_key, null)}>기본</button>
+                    </>) })()}
+                </span>
                 <span className="ucell acts">
                   <button className="sbtn" onClick={() => saveUser(u.user_key)}>저장</button>
                   <button className="sbtn stop" title="이 사용자 outputs 정리"

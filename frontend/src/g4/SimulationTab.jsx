@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from 'rea
 import { Gauge, Terminal, Stack, SlidersHorizontal, Path, Play, Stop, Lightning, FilmStrip } from '@phosphor-icons/react'
 import { ColorPicker } from 'lilak-ui'
 import Session from './Session.jsx'
+import BatchPanel from './BatchPanel.jsx'
 import StylePresets from './StylePresets.jsx'
 
 // [r,g,b] 0..1 → #hex, with an optional darken factor (matches the wireframe
@@ -11,7 +12,7 @@ const rgbHex = (c, k = 1) => '#' + hex2((c[0] || 0) * k) + hex2((c[1] || 0) * k)
 
 const PANELS = [
   { key: 'status', label: 'status', Icon: Gauge },
-  { key: 'session', label: 'session', Icon: Terminal },
+  { key: 'batch', label: 'batch', Icon: Terminal },
   { key: 'volumes', label: 'volumes', Icon: Stack },
   { key: 'tracks', label: 'tracks', Icon: Path },
   { key: 'animation', label: 'animation', Icon: FilmStrip },
@@ -84,7 +85,7 @@ const defTrackColor = (t) => speciesColor(speciesKey(t))
 // three.js + react-three-fiber are ~1MB; load them only when a scene actually
 // renders (never on the default Setup tab, which keeps first paint fast).
 const Viewer = lazy(() => import('./Viewer.jsx'))
-import { fetchJobScene, sessionScene, outputsScene } from './api.js'
+import { fetchJobScene, sessionScene, outputsScene, fetchMe } from './api.js'
 
 const JOB_ID = new URLSearchParams(location.search).get('job')
 const RUN_ID = new URLSearchParams(location.search).get('run')
@@ -123,12 +124,12 @@ const SHORTCUTS = [
   ['?', '단축키 설명 열기/닫기'],
   ['0', '열린 패널 닫기'],
   ['1', 'status 열기/닫기'],
-  ['2', 'session 열기/닫기'],
+  ['2', 'batch 열기/닫기'],
   ['3', 'volumes 열기/닫기'],
   ['4', 'tracks 열기/닫기'],
   ['5', 'display 열기/닫기'],
-  ['space', 'session start / stop'],
-  ['enter', 'session run (/run/beamOn)'],
+  ['space', 'viewer 실행 start / stop'],
+  ['enter', 'viewer 실행 run (/run/beamOn)'],
   ['b', '배경 흰색 ↔ 검은색'],
   ['x / y / z', '3D 축 방향으로 보기'],
   ['h', '뷰 방향 초기화 (home)'],
@@ -154,7 +155,7 @@ export default function SimulationTab() {
   const [hidden, setHidden] = useState(() => new Set())
   const [collapsed, setCollapsed] = useState(() => new Set())   // volume tree nodes
   const [active, setActive] = useState(null)        // open dock panel (null = nothing open on entry)
-  const [sessWide, setSessWide] = useState(false)   // session panel stretched full-width (log spread out)
+  const [batchAllowed, setBatchAllowed] = useState(null)  // may this user open the batch menu? (null=loading)
   const [styles, setStyles] = useState({})          // per-name display overrides
   const [styleFor, setStyleFor] = useState(null)    // which name's style editor is open
   const [showPresets, setShowPresets] = useState(false)  // style-preset panel open
@@ -177,6 +178,11 @@ export default function SimulationTab() {
   // sibling tab (both stay mounted), so we publish {styles, hidden} on every change
   // and apply an incoming blob when a preset carrying a style is loaded.
   useEffect(() => { window.__nptoyStyle = { styles, hidden: [...hidden] } }, [styles, hidden])
+  // Batch access gate: hide the batch menu entirely unless the user is allowed
+  // (managers + allowed ids). Restricted users only ever see viewer runs.
+  useEffect(() => { fetchMe().then((m) => setBatchAllowed(!!m.batch_allowed)).catch(() => setBatchAllowed(false)) }, [])
+  // If access is revoked while the batch panel is open, close it.
+  useEffect(() => { if (active === 'batch' && batchAllowed === false) setActive(null) }, [batchAllowed, active])
   useEffect(() => {
     const onApply = (e) => {
       const d = e.detail || {}
@@ -431,7 +437,8 @@ export default function SimulationTab() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       const k = e.key, lk = k.toLowerCase()
-      const panel = { 1: 'status', 2: 'session', 3: 'volumes', 4: 'tracks', 5: 'display' }[k]
+      let panel = { 1: 'status', 2: 'batch', 3: 'volumes', 4: 'tracks', 5: 'display' }[k]
+      if (panel === 'batch' && !batchAllowed) panel = null   // restricted → no batch menu
       let handled = true
       if (k === '?') setHelpOpen((v) => !v)
       else if (k === 'Escape' && helpOpen) setHelpOpen(false)
@@ -456,7 +463,7 @@ export default function SimulationTab() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [helpOpen])
+  }, [helpOpen, batchAllowed])
 
   const groups = useMemo(() => {
     const m = new Map()
@@ -551,6 +558,7 @@ export default function SimulationTab() {
   const hasScene = loaded && (geometry.length > 0 || event.tracks.length > 0)
   const mode = JOB_ID ? `job ${JOB_ID.slice(0, 8)}`
     : RUN_ID ? `run ${RUN_ID.replace(/^(session|job)_/, '').slice(0, 8)}` : 'live session'
+  const stopDisabled = sessState.alive && sessState.state === 'running'
 
   const volumeTree = (
     <div className="vollist tall">
@@ -618,13 +626,13 @@ export default function SimulationTab() {
       ) : (
         <div className="placeholder">
           {error ? `⚠ ${error}` : (JOB_ID || RUN_ID) ? 'loading…'
-            : 'session 아이콘에서 nptool 시뮬레이션을 실행하세요.'}
+            : '오른쪽 아래 start · run 버튼으로 viewer 실행을 시작하세요.'}
         </div>
       )}
 
       {/* macOS-style vertical dock: click an icon to open its panel on the right */}
       <div className="simrail">
-        {PANELS.map(({ key, label, Icon }) => (
+        {PANELS.filter((p) => p.key !== 'batch' || batchAllowed).map(({ key, label, Icon }) => (
           <button key={key} className={`railbtn ${active === key ? 'on' : ''}`} title={label}
             onClick={() => setActive((a) => (a === key ? null : key))}>
             <Icon size={21} weight={active === key ? 'fill' : 'regular'} />
@@ -634,7 +642,8 @@ export default function SimulationTab() {
         {/* session actions — divider + coloured buttons that drive the live session */}
         <div className="railsep" />
         <button className={`railbtn act ${sessState.alive ? 'stop' : 'start'}`}
-          title={sessState.alive ? '세션 정지 (stop)' : '세션 시작 (start)'}
+          title={stopDisabled ? 'run 완료 후 stop할 수 있습니다' : (sessState.alive ? 'viewer 실행 정지 (stop)' : 'viewer 실행 시작 (start)')}
+          disabled={stopDisabled}
           onClick={() => sessionRef.current?.toggle?.()}>
           {sessState.alive ? <Stop size={21} weight="fill" /> : <Play size={21} weight="fill" />}
           <span>{sessState.alive ? 'stop' : 'start'}</span>
@@ -649,7 +658,7 @@ export default function SimulationTab() {
         </button>
       </div>
 
-      {active && active !== 'session' && (
+      {active && (
         <div className={`simpanel ${active}`}>
           <div className="sphead">
             <span className="sptitle">{active}</span>
@@ -679,9 +688,10 @@ export default function SimulationTab() {
                 <div className="strow"><span>energy pts</span><b>{event.meta.n_points.toLocaleString()}</b></div>
                 <div className="strow"><span>E max</span><b>{(event.meta.energy_max || 0).toPrecision(3)} MeV</b></div>
                 <div className="strow"><span>volumes</span><b>{geometry.length}</b></div>
-                {!hasScene && <div className="dnote">아직 씬이 없습니다 — session에서 실행하세요.</div>}
+                {!hasScene && <div className="dnote">아직 씬이 없습니다 — viewer 실행(start · run)하세요.</div>}
               </div>
             )}
+            {active === 'batch' && batchAllowed && <BatchPanel />}
             {active === 'volumes' && (geometry.length > 0 ? (<>
               {showPresets && <StylePresets styles={styles} hidden={[...hidden]}
                 onApply={(sty, hid) => { setStyles(sty || {}); setHidden(new Set(hid || [])) }} />}
@@ -918,16 +928,10 @@ export default function SimulationTab() {
         </div>
       )}
 
-      {/* session panel — always mounted so keyboard start/stop/run works when closed */}
-      <div className={`simpanel session ${sessWide ? 'wide' : ''}`} style={{ display: active === 'session' ? 'flex' : 'none' }}>
-        <div className="sphead">
-          <span className="sptitle">session</span>
-          <button className="mini" title={sessWide ? '기본 폭으로' : '좌우로 넓게 — 로그 펼치기'}
-            onClick={() => setSessWide((v) => !v)}>{sessWide ? '⤡ 좁게' : '⤢ 넓게'}</button>
-          <button className="spclose" title="닫기" onClick={() => setActive(null)}>✕</button>
-        </div>
-        <div className="spbody"><Session ref={sessionRef} onState={setSessState} /></div>
-      </div>
+      {/* The viewer session drives the live 3D scene; it's controlled entirely by the
+          rail buttons (start / run 1 / run 10), so keep it mounted but hidden — its
+          imperative ref stays available and its state flows up via onState. */}
+      <div style={{ display: 'none' }}><Session ref={sessionRef} onState={setSessState} /></div>
 
       {hasScene && (
         <div className="gizmoctl">

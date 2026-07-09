@@ -18,6 +18,28 @@ def _db_path() -> Path:
     return root / "_portal" / "portal.db"
 
 
+def list_accounts() -> list[dict]:
+    """All active portal accounts as [{email, username, display_name}]. Lets callers
+    map a workspace user_key (derived from email) back to a human identity. Returns []
+    if the portal DB is unavailable."""
+    db = _db_path()
+    if not db.is_file():
+        return []
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = con.execute(
+                "SELECT email, username, display_name FROM users WHERE is_active=1"
+            ).fetchall()
+            return [{"email": r["email"], "username": r["username"],
+                     "display_name": r["display_name"]} for r in rows]
+        finally:
+            con.close()
+    except Exception:
+        return []
+
+
 def current(payload: dict) -> dict:
     """Return latest profile fields for this portal token payload.
 

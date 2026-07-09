@@ -41,6 +41,23 @@ def _user_key(email: str) -> str:
     return f"{slug}-{digest}"
 
 
+def workspace_names() -> dict:
+    """Map each workspace user_key back to its portal account identity:
+    {user_key: {"username", "name" (display_name or username), "email"}}.
+    Lets the admin panel show real usernames instead of the email-derived key."""
+    out: dict = {}
+    for a in portal_profile.list_accounts():
+        email = (a.get("email") or "").strip()
+        if not email:
+            continue
+        out[_user_key(email)] = {
+            "username": a.get("username"),
+            "name": a.get("display_name") or a.get("username"),
+            "email": email,
+        }
+    return out
+
+
 def _bearer(authorization: Optional[str]) -> Optional[str]:
     if authorization and authorization.startswith("Bearer "):
         return authorization[7:]

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CaretRight } from '@phosphor-icons/react'
 import { fetchFileObject, rootDraw, rootSave, inputsGetFile } from './api.js'
@@ -20,6 +20,44 @@ import { fetchFileObject, rootDraw, rootSave, inputsGetFile } from './api.js'
  *     with a cut and explicit binning — → histogram JSON, parsed & drawn here.
  */
 const OBJ_GROUP = '__objects__'
+const BUILTIN_PLOTS = [
+  { title: 'PMT photons', x: 'CSSU.fCSSU_PMT_PhotonCount', opt: 'hist' },
+  { title: 'PMT photons vs PMT', x: 'CSSU.fCSSU_PMT_Number', y: 'CSSU.fCSSU_PMT_PhotonCount', opt: 'colz' },
+  { title: 'CSSU energy', x: 'CSSU.fCSSU_Energy', opt: 'hist' },
+  { title: 'W1 front energy', x: 'CSSU.fCSSU_W1_FrontEnergy', opt: 'hist' },
+  { title: 'Detected energy', x: 'InteractionCoordinates.fDetected_Energy', opt: 'hist' },
+]
+
+const CSSU_FALLBACK = [
+  {
+    branch: 'CSSU',
+    members: [
+      ['fCSSU_PMT_PhotonCount', 'vector<int>'],
+      ['fCSSU_PMT_Number', 'vector<short>'],
+      ['fCSSU_PMT_DetectorNbr', 'vector<short>'],
+      ['fCSSU_PMT_FirstTime', 'vector<double>'],
+      ['fCSSU_Energy', 'vector<double>'],
+      ['fCSSU_Time', 'vector<double>'],
+      ['fCSSU_W1_FrontEnergy', 'vector<double>'],
+      ['fCSSU_W1_BackEnergy', 'vector<double>'],
+      ['fCSSU_W1_FrontStrip', 'vector<short>'],
+      ['fCSSU_W1_BackStrip', 'vector<short>'],
+    ].map(([label, type]) => ({ label, type, expr: `CSSU.${label}` })),
+  },
+  {
+    branch: 'InteractionCoordinates',
+    members: [
+      ['fDetected_Energy', 'vector<double>'],
+      ['fDetected_Position_X', 'vector<double>'],
+      ['fDetected_Position_Y', 'vector<double>'],
+      ['fDetected_Position_Z', 'vector<double>'],
+    ].map(([label, type]) => ({ label, type, expr: `InteractionCoordinates.${label}` })),
+  },
+]
+
+function fallbackGroups(path) {
+  return /ScintPMT|W1Mask|GasCF4/i.test(path || '') ? CSSU_FALLBACK : []
+}
 
 export default function RootViewer({ path, controlOpen = true, plotHost = null, onCloseControl, onCloseViewer, onSaved }) {
   const [status, setStatus] = useState('여는 중…')
@@ -48,6 +86,21 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
   const idRef = useRef(0)
   const seqRef = useRef(0)
   const drawnRef = useRef(new Map())             // plot id → last-drawn seq
+  const autoPresetRef = useRef('')
+
+  const builtin = useMemo(() => {
+    const exprs = new Set()
+    for (const g of groups) for (const m of (g.members || [])) exprs.add(m.expr)
+    return BUILTIN_PLOTS.filter((p) => exprs.has(p.x) && (!p.y || exprs.has(p.y)))
+  }, [groups])
+
+  const plotPresets = useMemo(() => {
+    const savedKeys = new Set((saved || []).map((p) => `${p.x || ''}:${p.y || ''}`))
+    return [
+      ...builtin.filter((p) => !savedKeys.has(`${p.x || ''}:${p.y || ''}`)),
+      ...saved,
+    ]
+  }, [builtin, saved])
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +163,15 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
         setOpenGroups(objs.length ? new Set([OBJ_GROUP]) : new Set())  // branches collapsed; objects open
         setStatus('')
       } catch (e) {
+        const fb = fallbackGroups(path)
+        if (!cancelled && jsrootRef.current && fb.length) {
+          setObjects([])
+          setGroups(fb)
+          setOpenGroups(new Set(fb.map((g) => g.branch)))
+          setStatus('')
+          setErr('')
+          return
+        }
         if (!cancelled) setErr(String(e?.message || e))
       }
     })()
@@ -234,6 +296,15 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
     nx: p.nx || '', xlo: p.xlo || '', xhi: p.xhi || '', ny: p.ny || '', ylo: p.ylo || '', yhi: p.yhi || '',
   }, true)
 
+  useEffect(() => {
+    if (plots.length || saved.length || !builtin.length || !jsrootRef.current) return
+    const p = builtin[0]
+    const key = `${path}:${p.x || ''}:${p.y || ''}`
+    if (autoPresetRef.current === key) return
+    autoPresetRef.current = key
+    drawSaved(p)
+  }, [builtin, saved.length, plots.length, path])
+
   function closePlot(id, e) {
     e.stopPropagation()
     const j = jsrootRef.current
@@ -304,14 +375,14 @@ export default function RootViewer({ path, controlOpen = true, plotHost = null, 
         <span className="fptitle">ROOT 컨트롤</span>
         {onCloseControl && <button className="fpclose" onClick={onCloseControl} title="닫기">✕</button>}
       </div>
-      {saved.length > 0 && (
+      {plotPresets.length > 0 && (
         <div className="rvsaved">
           <div className="rvsavedhead">
-            <span>저장된 그림</span>
-            <button onClick={() => saved.forEach(drawSaved)} title="모두 새 탭으로 그리기">모두</button>
+            <span>{saved.length ? '저장/추천 그림' : '추천 그림'}</span>
+            <button onClick={() => plotPresets.forEach(drawSaved)} title="모두 새 탭으로 그리기">모두</button>
           </div>
           <div className="rvsavedlist">
-            {saved.map((p, i) => (
+            {plotPresets.map((p, i) => (
               <button key={i} className="rvsavedbtn" onClick={() => drawSaved(p)}
                 title={`${p.y ? p.y + ':' : ''}${p.x}${p.cut ? '  {' + p.cut + '}' : ''}`}>
                 {p.title || p.x || `plot ${i + 1}`}

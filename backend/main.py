@@ -41,7 +41,7 @@ import session as session_mod
 import settings as settings_mod
 import worker
 import workspace
-from auth import PortalUser, require_user
+from auth import PortalUser, require_user, workspace_names
 
 app = FastAPI(title="nptoy", docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -66,6 +66,12 @@ def require_manager(user: PortalUser = Depends(require_user)) -> PortalUser:
     return user
 
 
+def _batch_allowed(user: PortalUser) -> bool:
+    """May this user submit batch jobs? Managers always may; everyone else needs the
+    per-user override / global default (restricted by default — viewer runs only)."""
+    return user.role == "manager" or settings_mod.batch_allowed(user.user_key)
+
+
 # ── health (no auth — SERVICE_CONTRACT §2 health) ─────────────────────────────
 @app.get("/api/health")
 def health() -> dict:
@@ -76,7 +82,8 @@ def health() -> dict:
 def whoami(user: PortalUser = Depends(require_user)) -> dict:
     """Portal identity of the caller (nptoy scaffold pages read this)."""
     return {"authenticated": True, "email": user.email, "username": user.username,
-            "name": user.name, "role": user.role, "color": user.color, "shape": user.shape}
+            "name": user.name, "role": user.role, "color": user.color, "shape": user.shape,
+            "batch_allowed": _batch_allowed(user)}
 
 
 # ── identity + quota (PLAN §5 /api/me) ────────────────────────────────────────
@@ -90,6 +97,7 @@ def me(user: PortalUser = Depends(require_user)) -> dict:
         "role": user.role,
         "quota_bytes": workspace.quota(user.user_key),
         "used_bytes": used,
+        "batch_allowed": _batch_allowed(user),
     }
 
 
@@ -120,6 +128,11 @@ def _queue_position(session, job: db.Job) -> int | None:
 
 @app.post("/api/jobs", status_code=201)
 def submit_job(body: SubmitJob, user: PortalUser = Depends(require_user)) -> dict:
+    # 0) permission gate: batch runs are restricted (viewer runs are always allowed).
+    if not _batch_allowed(user):
+        raise HTTPException(status_code=403,
+                            detail="배치 실행 권한이 없습니다 — 관리자에게 요청하세요. (viewer 실행은 가능합니다)")
+
     # 1) validate params against the whitelist (PLAN §4.1 / §8)
     try:
         clean = params_mod.validate(body.params)
@@ -173,13 +186,20 @@ def _owned_job(session, job_id: str, user: PortalUser) -> db.Job:
     return job
 
 
+def _job_run_id(job: db.Job) -> str:
+    """The run id the worker actually named this job's artifacts with — `run_name`
+    ({project}_{n}.{user}.sim) when set, else the legacy job_<id> fallback. Must match
+    worker._run_job so the log/stream/geom paths resolve to the real files."""
+    return job.run_name or f"job_{job.id}"
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str, user: PortalUser = Depends(require_user)) -> dict:
     session = db.Session()
     try:
         job = _owned_job(session, job_id, user)
         out = job.to_dict(queue_position=_queue_position(session, job))
-        log = inputs.run_paths(user.user_key, f"job_{job_id}")["log"]
+        log = inputs.run_paths(user.user_key, _job_run_id(job))["log"]
         if log.exists():
             out["log_tail"] = "\n".join(log.read_text().splitlines()[-40:])
         return out
@@ -209,9 +229,10 @@ def job_viewer(job_id: str, tracks_from: int = 0, tracks_count: int = 0,
     try:
         job = _owned_job(session, job_id, user)
         n_events = int(job.params.get("n_events", 0))
+        run_id = _job_run_id(job)
     finally:
         session.close()
-    rp = inputs.run_paths(user.user_key, f"job_{job_id}")
+    rp = inputs.run_paths(user.user_key, run_id)
     return JSONResponse(scene.from_online(rp["stream"], rp["geom"],
                                           tracks_from=tracks_from, tracks_count=tracks_count or None))
 
@@ -221,10 +242,11 @@ def job_result(job_id: str, user: PortalUser = Depends(require_user)) -> Streami
     """Zip of the job's output artifacts — owner only (PLAN §4.5)."""
     session = db.Session()
     try:
-        _owned_job(session, job_id, user)
+        job = _owned_job(session, job_id, user)
+        run_id = _job_run_id(job)
     finally:
         session.close()
-    rp = inputs.run_paths(user.user_key, f"job_{job_id}")
+    rp = inputs.run_paths(user.user_key, run_id)
     files = [rp[k] for k in ("root", "gdml", "geom", "stream", "log", "mac") if rp[k].exists()]
     if not files:
         raise HTTPException(status_code=404, detail="결과가 없습니다.")
@@ -632,6 +654,38 @@ def shared_delete(owner: str, name: str, user: PortalUser = Depends(require_user
     return {"ok": True}
 
 
+# ── system (common) presets: the shared defaults everyone sees. Read-only for users;
+#    managers may publish the current inputs as one and delete existing ones. ─────────
+class SystemPreset(BaseModel):
+    name: str
+    overwrite: bool = False
+
+
+@app.post("/api/library/system/save")
+def system_save(body: SystemPreset, _: PortalUser = Depends(require_manager),
+                user: PortalUser = Depends(require_user)) -> dict:
+    inputs.ensure(user.user_key)
+    try:
+        key = common.save_common(user.user_key, body.name, overwrite=body.overwrite)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="이름이 올바르지 않습니다.")
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="저장할 입력이 없습니다.")
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="같은 이름의 시스템 프리셋이 이미 있습니다.")
+    inputs.set_setup_name(user.user_key, key)
+    return {"ok": True, "name": key}
+
+
+@app.delete("/api/library/system")
+def system_delete(name: str, _: PortalUser = Depends(require_manager)) -> dict:
+    try:
+        common.delete_common(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="이름이 올바르지 않습니다.")
+    return {"ok": True}
+
+
 # ── interactive nptool sessions (live npsimulation -N + Run button) ───────────
 class RunBeamOn(BaseModel):
     n: int
@@ -716,6 +770,11 @@ class StopSession(BaseModel):
 def session_stop(body: StopSession | None = None, user: PortalUser = Depends(require_user)) -> dict:
     # force=True aborts a long/heavy run immediately (SIGKILL, no graceful drain).
     force = bool(body.force) if body else False
+    if not force:
+        s = session_mod.manager.get(user.user_key)
+        if s and getattr(s, "state", None) == session_mod.RUNNING:
+            raise HTTPException(status_code=409,
+                                detail="시뮬레이션 실행 중에는 stop할 수 없습니다. 완료 후 stop하세요.")
     files = session_mod.manager.stop(user.user_key, force=force)
     return {"stopped": files is not None, "files": files or []}
 
@@ -1065,21 +1124,33 @@ class UpdateSettings(BaseModel):
     job_timeout_sec: int | None = None
     user_quota_bytes: int | None = None
     max_sessions: int | None = None
+    batch_default: bool | None = None    # global: are all users allowed batch by default?
+
+
+def _admin_settings_dict() -> dict:
+    return {**settings_mod.all(), "batch_default": settings_mod.batch_default()}
 
 
 @app.get("/api/admin/settings")
 def admin_settings(_: PortalUser = Depends(require_manager)) -> dict:
     overrides = settings_mod.user_overrides()
+    names = workspace_names()      # user_key -> {username, name, email} from the portal DB
     users = [{**u, "override": overrides.get(u["user_key"], {}),
-              "quota_bytes": workspace.quota(u["user_key"])}
+              "quota_bytes": workspace.quota(u["user_key"]),
+              "batch_allowed": settings_mod.batch_allowed(u["user_key"]),
+              **names.get(u["user_key"], {})}
              for u in workspace.usage_summary()]
-    return {"settings": settings_mod.all(), "users": users}
+    return {"settings": _admin_settings_dict(), "users": users}
 
 
 @app.put("/api/admin/settings")
 def admin_settings_update(body: UpdateSettings, _: PortalUser = Depends(require_manager)) -> dict:
-    patch = {k: v for k, v in body.dict().items() if v is not None}
-    return {"settings": settings_mod.update(patch)}
+    patch = {k: v for k, v in body.dict().items()
+             if v is not None and k != "batch_default"}
+    settings_mod.update(patch)
+    if body.batch_default is not None:
+        settings_mod.set_batch_default(body.batch_default)
+    return {"settings": _admin_settings_dict()}
 
 
 class UserLimit(BaseModel):
@@ -1092,6 +1163,19 @@ class UserLimit(BaseModel):
 def admin_user_limit(body: UserLimit, _: PortalUser = Depends(require_manager)) -> dict:
     patch = {"job_timeout_sec": body.job_timeout_sec, "user_quota_bytes": body.user_quota_bytes}
     return {"override": settings_mod.set_user_limit(body.user_key, patch)}
+
+
+class UserBatch(BaseModel):
+    user_key: str
+    allowed: bool | None = None          # True/False pins; null clears → global default
+
+
+@app.put("/api/admin/user-batch")
+def admin_user_batch(body: UserBatch, _: PortalUser = Depends(require_manager)) -> dict:
+    """Per-user batch permission: allow / restrict / (null) fall back to the default."""
+    settings_mod.set_user_batch(body.user_key, body.allowed)
+    return {"override": settings_mod.user_overrides().get(body.user_key, {}),
+            "batch_allowed": settings_mod.batch_allowed(body.user_key)}
 
 
 class AdminClean(BaseModel):

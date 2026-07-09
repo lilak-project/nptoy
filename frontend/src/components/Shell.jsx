@@ -88,6 +88,44 @@ export default function Shell() {
     return () => { alive = false; clearInterval(id) }
   }, [])
 
+  // Watch the user's batch jobs (always, regardless of the open tab/panel) and post a
+  // system message the moment one finishes — 시뮬레이션 배치가 끝나면 알림. Diff each
+  // poll's statuses; fire on the transition INTO a terminal state (not on first load,
+  // so already-finished jobs stay quiet).
+  const jobStatusRef = useRef(null)   // Map<id, status>; null until the first poll
+  useEffect(() => {
+    let alive = true
+    const TERM = ['done', 'failed', 'timeout', 'cancelled']
+    const tick = async () => {
+      let d
+      try { d = await get('/api/jobs') } catch { return }
+      if (!alive) return
+      const jobs = d.jobs || []
+      const prev = jobStatusRef.current
+      if (prev) {
+        for (const j of jobs) {
+          const was = prev.get(j.id)
+          if (was && was !== j.status && TERM.includes(j.status) && !TERM.includes(was)) {
+            const ev = j.params && j.params.n_events
+            const name = j.run_name ? j.run_name + '.root' : '배치 결과'
+            const mb = Math.round((j.size_bytes || 0) / 1024 / 1024 * 10) / 10
+            const text = j.status === 'done'
+              ? `배치 완료: ${name}${ev ? ` · ${ev.toLocaleString()} 이벤트` : ''}${mb ? ` · ${mb} MB` : ''}`
+              : j.status === 'timeout' ? `배치 시간초과: ${name}`
+              : j.status === 'cancelled' ? `배치 취소됨: ${name}`
+              : `배치 실패: ${name}${j.error ? ' — ' + j.error : ''}`
+            window.dispatchEvent(new CustomEvent('nptoy-notify',
+              { detail: { text, level: j.status === 'done' ? 'info' : 'error' } }))
+          }
+        }
+      }
+      jobStatusRef.current = new Map(jobs.map((j) => [j.id, j.status]))
+    }
+    tick()
+    const id = setInterval(tick, 3000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
   // Poll @mention notifications for the \ drawer.
   const loadNotifs = () => communityApi.notifications().then(setNotifs).catch(() => {})
   useEffect(() => {

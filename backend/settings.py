@@ -103,6 +103,52 @@ def update(patch: dict) -> dict:
         return _globals(raw)
 
 
+# ── batch-run permission ──────────────────────────────────────────────────────
+# Batch runs (npsimulation -B, real data → outputs/) are gated per user. A global
+# default applies unless a user has an explicit override. Default is RESTRICTED
+# (False): a brand-new id can only do viewer runs until a manager allows batch.
+def batch_default() -> bool:
+    with _lock:
+        return bool(_load_raw().get("batch_default", False))
+
+
+def batch_allowed(user_key: str | None = None) -> bool:
+    """Whether this user may submit batch jobs. Explicit per-user override wins over
+    the global default; no override → the global default (restricted by default)."""
+    with _lock:
+        raw = _load_raw()
+        if user_key:
+            u = (raw.get("users", {}) or {}).get(user_key, {})
+            if isinstance(u.get("batch_allowed"), bool):
+                return u["batch_allowed"]
+        return bool(raw.get("batch_default", False))
+
+
+def set_batch_default(on: bool) -> bool:
+    with _lock:
+        raw = _load_raw()
+        raw["batch_default"] = bool(on)
+        _write_raw(raw)
+        return raw["batch_default"]
+
+
+def set_user_batch(user_key: str, allowed) -> dict:
+    """Set a per-user batch override. True/False pins the answer; None clears it so
+    the user falls back to the global default. Returns the user's overrides."""
+    with _lock:
+        raw = _load_raw()
+        users = raw.setdefault("users", {})
+        u = users.setdefault(user_key, {})
+        if allowed is None:
+            u.pop("batch_allowed", None)
+        else:
+            u["batch_allowed"] = bool(allowed)
+        if not u:
+            users.pop(user_key, None)
+        _write_raw(raw)
+        return users.get(user_key, {})
+
+
 def set_user_limit(user_key: str, patch: dict) -> dict:
     """Set (or clear, with None) a per-user override. Returns the user's overrides."""
     with _lock:

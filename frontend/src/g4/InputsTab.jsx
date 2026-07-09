@@ -10,6 +10,7 @@ import {
   inputsSources, libraryList, librarySave, libraryLoad, libraryDelete,
   stylesList, stylesSave, stylesLoad, stylesDelete,
   librarySharedList, librarySharedSave, librarySharedLoad, librarySharedDelete,
+  librarySystemSave, librarySystemDelete, fetchMe,
 } from './api.js'
 
 const FORM_SLOTS = { detector: DetectorForm, reaction: ReactionForm, physics: PhysicsForm }
@@ -80,6 +81,7 @@ export default function InputsTab({ me, onSetupName }) {
   const [libItems, setLibItems] = useState({}) // list id → [{value,label,mine}]
   const [pick, setPick] = useState(null)       // { id, name } selected in a list
   const [confirmSave, setConfirmSave] = useState('')  // list id awaiting overwrite confirm
+  const [isManager, setIsManager] = useState(false)   // managers may curate system presets
 
   async function load() {
     try { setData(await inputsState()) }
@@ -90,6 +92,7 @@ export default function InputsTab({ me, onSetupName }) {
   useEffect(() => {
     load(); refreshSources()
     csCandidates().then((d) => setCsFiles(d.files)).catch(() => {})
+    fetchMe().then((m) => setIsManager(m.role === 'manager')).catch(() => {})
     openSlot('detector', SLOT_LABEL.detector)     // one editor is always open on entry
   }, [])
 
@@ -232,7 +235,7 @@ export default function InputsTab({ me, onSetupName }) {
 
   const isPersistTarget = (desc) => desc.kind === 'preset' || desc.slot === active
   async function doSave(desc, overwrite = false) {
-    if (!desc.save) return
+    if (!saveable(desc)) return
     const name = (nameOf(desc) || '').trim()
     if (!name) { setMsg('이름을 입력하세요.'); return }
     if (desc.kind === 'style') {   // save the preview JSON as a named style preset
@@ -257,8 +260,10 @@ export default function InputsTab({ me, onSetupName }) {
       }
       if (desc.kind === 'slot') await librarySave(desc.slot, name, overwrite)
       else if (desc.ptype === 'shared') await librarySharedSave(name, overwrite, style)
+      else if (desc.ptype === 'system') await librarySystemSave(name, overwrite)   // manager: system default
       else await librarySave('preset', name, overwrite, style)   // user preset
       setConfirmSave(''); setMsg(''); fetchList(desc); reloadState()
+      if (desc.ptype === 'system') refreshSources()   // system list comes from sources.common
       flash(`저장됨 — ${desc.label} / ${name}`)
     } catch (e) {
       // 409 = my own name exists → offer 덮어쓰기?/취소 (no repeated error text).
@@ -302,6 +307,7 @@ export default function InputsTab({ me, onSetupName }) {
       if (desc.kind === 'slot') await libraryDelete(desc.slot, name)
       else if (desc.kind === 'style') await stylesDelete(name)
       else if (desc.ptype === 'shared') await librarySharedDelete(owner, name)
+      else if (desc.ptype === 'system') { await librarySystemDelete(name); refreshSources() }
       else await libraryDelete('preset', name)
       fetchList(desc); if (pick && pick.id === desc.id && pick.name === name) setPick(null)
     } catch (e) { setMsg(e.detail || String(e.message || e)) }
@@ -309,7 +315,11 @@ export default function InputsTab({ me, onSetupName }) {
   const canDelete = (desc, it) =>
     desc.kind === 'slot' ||
     (desc.kind === 'style' && it.mine) ||
-    (desc.kind === 'preset' && (desc.ptype === 'user' || (desc.ptype === 'shared' && it.mine)))
+    (desc.kind === 'preset' && (desc.ptype === 'user' || (desc.ptype === 'shared' && it.mine)
+      || (desc.ptype === 'system' && isManager)))   // managers curate the system list
+  // Whether the save controls are active: system presets are read-only for everyone
+  // EXCEPT managers, who may publish the current inputs as a system default.
+  const saveable = (desc) => !!desc.save || (desc.kind === 'preset' && desc.ptype === 'system' && isManager)
 
   // Apply the pasted/loaded style JSON to the viewer without saving it.
   function applyStyle() {
@@ -358,9 +368,9 @@ export default function InputsTab({ me, onSetupName }) {
         </div>
         <div className="setupbody">
           {selector}
-          <input className="filname" value={nameOf(desc)} disabled={!desc.save}
+          <input className="filname" value={nameOf(desc)} disabled={!saveable(desc)}
             onChange={(e) => setNames((m) => ({ ...m, [desc.id]: e.target.value }))}
-            placeholder={desc.save ? '이름 (저장 시 사용)' : '저장할 수 없는 목록'}
+            placeholder={saveable(desc) ? '이름 (저장 시 사용)' : '저장할 수 없는 목록'}
             title="저장할 때 쓰이는 이름. load 하면 불러온 이름이 채워집니다." />
           {confirmSave === desc.id ? (
             <div className="filbtns">
@@ -368,8 +378,10 @@ export default function InputsTab({ me, onSetupName }) {
               <button className="sbtn" onClick={() => setConfirmSave('')}>취소</button>
             </div>
           ) : (
-            <button className="sbtn go filsavebtn" disabled={!desc.save} onClick={() => doSave(desc)}
-              title={desc.save ? '현재 내용을 위 이름으로 저장' : 'system 목록에는 저장할 수 없습니다'}>save</button>
+            <button className="sbtn go filsavebtn" disabled={!saveable(desc)} onClick={() => doSave(desc)}
+              title={saveable(desc)
+                ? (desc.kind === 'preset' && desc.ptype === 'system' ? '현재 입력을 시스템 프리셋으로 저장 (관리자)' : '현재 내용을 위 이름으로 저장')
+                : 'system 목록에는 저장할 수 없습니다'}>save</button>
           )}
           <button className="sbtn go filloadbtn" disabled={!pick || pick.id !== desc.id}
             onClick={() => doLoad(desc, pick.name, pick.owner)}>load</button>

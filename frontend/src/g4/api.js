@@ -34,6 +34,12 @@ async function req(path, method = 'GET', body = null) {
 // ── identity ──────────────────────────────────────────────────────────────────
 export const fetchMe = () => req('api/me')
 
+// ── batch jobs (npsimulation -B, real data → outputs/) ────────────────────────
+export const jobsSubmit = (params) => req('api/jobs', 'POST', { params })
+export const jobsList = () => req('api/jobs')
+export const jobGet = (id) => req(`api/jobs/${id}`)
+export const jobCancel = (id) => req(`api/jobs/${id}/cancel`, 'POST')
+
 // ── viewer scenes ─────────────────────────────────────────────────────────────
 // tracks_from/tracks_count page through the tracks (keeps each response small).
 const _pg = (from, count) => (count ? `tracks_from=${from}&tracks_count=${count}` : '')
@@ -70,6 +76,11 @@ export const librarySharedSave = (name, overwrite = false, style = null) =>
 export const librarySharedLoad = (owner, name) => req('api/library/shared/load', 'POST', { owner, name })
 export const librarySharedDelete = (owner, name) =>
   req(`api/library/shared?owner=${encodeURIComponent(owner)}&name=${encodeURIComponent(name)}`, 'DELETE')
+// system (common) presets — manager-only save/delete of the shared defaults
+export const librarySystemSave = (name, overwrite = false) =>
+  req('api/library/system/save', 'POST', { name, overwrite })
+export const librarySystemDelete = (name) =>
+  req('api/library/system?name=' + encodeURIComponent(name), 'DELETE')
 export const csCandidates = () => req('api/inputs/crosssections')
 export const csGet = (name) => req('api/inputs/crosssection' + (name ? `?name=${encodeURIComponent(name)}` : ''))
 export const csSave = (content, name) =>
@@ -165,6 +176,8 @@ export const adminSettings = () => req('api/admin/settings')
 export const adminSettingsUpdate = (patch) => req('api/admin/settings', 'PUT', patch)
 export const adminClean = (userKey) => req('api/admin/clean', 'POST', userKey ? { user_key: userKey } : {})
 export const adminUserLimit = (userKey, patch) => req('api/admin/user-limit', 'PUT', { user_key: userKey, ...patch })
+// batch permission: allowed true/false pins the user; null clears → global default
+export const adminUserBatch = (userKey, allowed) => req('api/admin/user-batch', 'PUT', { user_key: userKey, allowed })
 
 // ── named / shareable configs ─────────────────────────────────────────────────
 export const configsList = () => req('api/configs')

@@ -77,6 +77,7 @@ class Job(Base):
             "exit_code": self.exit_code,
             "size_bytes": self.size_bytes,
             "error": self.error,
+            "run_name": self.run_name,
         }
         if queue_position is not None:
             d["queue_position"] = queue_position

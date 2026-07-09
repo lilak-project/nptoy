@@ -57,7 +57,7 @@ export default forwardRef(function Session({ onState } = {}, ref) {
   async function doStop(force = false) {
     setError(null)
     let res = null
-    try { res = await sessionStop(force) } catch (e) {}
+    try { res = await sessionStop(force) } catch (e) { setError(authMsg(e)); return }
     setSess(null); setLines([]); sinceRef.current = 0; setVerbose(false)
     // Report the files the session left in outputs/ via the top-right toast.
     const files = res && res.files
@@ -76,12 +76,14 @@ export default forwardRef(function Session({ onState } = {}, ref) {
 
   const state = sess?.state
   const idle = state === 'idle'
+  const running = state === 'running'
   const alive = sess && state !== 'stopped'
+  const canStop = alive && !running
 
   useImperativeHandle(ref, () => ({
     start: () => { if (!alive) doStart() },
-    stop: () => { if (alive) doStop() },
-    toggle: () => (alive ? doStop() : doStart()),
+    stop: () => { if (canStop) doStop() },
+    toggle: () => (alive ? (canStop && doStop()) : doStart()),
     run: (count) => { if (idle) doRun(count) },   // count optional → defaults to the input n
     isAlive: () => !!alive,
     isIdle: () => !!idle,
@@ -95,7 +97,9 @@ export default forwardRef(function Session({ onState } = {}, ref) {
     <div className="session">
       <div className="srow">
         {alive
-          ? <button className="sbtn stop" onClick={() => doStop(false)}>stop</button>
+          ? <button className="sbtn stop" onClick={() => doStop(false)} disabled={running}
+              title={running ? 'run 완료 후 stop할 수 있습니다' : 'stop'}>
+              stop</button>
           : <button className="sbtn go" onClick={doStart}>start</button>}
         <span className="wsinfo">runs the input workspace ▸</span>
         {/* far right, away from stop, so it isn't hit by accident */}
