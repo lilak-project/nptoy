@@ -240,6 +240,13 @@ def open_for(user_key: str) -> dict:
 
 
 def close_for(user_key: str) -> bool:
+    if config.RUNNER == "sci":
+        # sci mode: the RBrowser process lives in the runner, not here. Ask the
+        # runner to kill it (keyed by user_key); the local _sessions map is empty.
+        try:
+            return bool(sim_client.rbrowser_close(user_key).get("closed"))
+        except Exception:
+            return False
     with _lock:
         sess = _sessions.pop(user_key, None)
     if sess:

@@ -237,6 +237,7 @@ def _run_job_sci(session, job: db.Job) -> None:
     #    the timeout so a network partition can't hang the queue forever).
     st: dict = {}
     cancelled = False
+    missing = 0
     deadline = time.monotonic() + timeout_sec + 60
     while True:
         time.sleep(config.WORKER_POLL_SEC)
@@ -251,8 +252,26 @@ def _run_job_sci(session, job: db.Job) -> None:
             st = sim_client.status(runner_id)
         except Exception:
             continue                              # transient; keep waiting
-        if st.get("status") in ("done", "error", "timeout"):
+        s = st.get("status")
+        if s == "notfound":                       # runner restarted and lost the job
+            missing += 1
+            if missing >= 2:                      # confirmed gone → stop waiting
+                st = {"status": "error", "error": "sci-runner lost the job (it restarted)"}
+                break
+            continue
+        missing = 0
+        if s in ("done", "error", "timeout"):
             break
+
+    # Stop the REMOTE process on cancel or our own deadline. The runner now keeps a
+    # killable handle per job, so this actually frees the runner's CPU/RAM instead
+    # of leaving npsimulation burning until its own timeout (which under-counted
+    # load on the shared runner and risked OOM-killing other users' sims).
+    if cancelled or st.get("status") == "timeout":
+        try:
+            sim_client.job_cancel(runner_id)
+        except Exception:
+            pass
 
     with _current_lock:
         _cancel_requested.discard(job.id)
@@ -296,7 +315,7 @@ def _run_job_sci(session, job: db.Job) -> None:
         job.status = db.STATUS_DONE
     else:
         job.status = db.STATUS_FAILED
-        job.error = f"simulator exited with code {st.get('rc')}"
+        job.error = st.get("error") or f"simulator exited with code {st.get('rc')}"
     session.commit()
 
     shutil.rmtree(stage, ignore_errors=True)

@@ -68,8 +68,22 @@ def submit(argv: list[str], name: str | None = None, timeout: int | None = None,
 
 def status(job_id: str) -> dict:
     req = urllib.request.Request(f"{SCI_URL}/jobs/{job_id}", headers=_headers())
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as exc:
+        # The runner registers a job synchronously before returning its id, so a 404
+        # means it LOST the job (it restarted). Signal that as terminal-ish so the
+        # poller can stop instead of waiting out the whole timeout on a dead job.
+        if exc.code == 404:
+            return {"status": "notfound"}
+        raise
+
+
+def job_cancel(job_id: str) -> dict:
+    """Best-effort: tell the runner to SIGKILL a job's process tree. Callers wrap
+    this in try/except — a cancel that can't reach the runner must not crash us."""
+    return _post(f"/jobs/{job_id}/cancel", {})
 
 
 def result_dir(job_id: str) -> Path:
@@ -79,6 +93,12 @@ def result_dir(job_id: str) -> Path:
 
 def rbrowser_open(user_key: str) -> dict:
     return _post("/rbrowser/open", {"user_key": user_key})
+
+
+def rbrowser_close(user_key: str) -> dict:
+    """Tear down the user's RBrowser process in the runner (called when the user
+    closes the viewer) so its ROOT process frees now, not at idle-reap time."""
+    return _post("/rbrowser/close", {"user_key": user_key})
 
 
 def rbrowser_http_url(token: str, path: str, query: str = "") -> str:
