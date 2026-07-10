@@ -17,10 +17,15 @@ export default defineConfig(({ mode }) => {
   return {
     base: './',
     plugins: [react()],
-    resolve: { alias: {
-      'lilak-ui': resolve(UI, 'src'),
-      ...Object.fromEntries(nodeOnly.map((m) => [m, jsrootNodeStub])),
-    } },
+    resolve: {
+      // Resolve react/react-dom to ONE copy (this app's), so the source-aliased kit
+      // can't pull in its own React and trigger "Invalid hook call".
+      dedupe: ['react', 'react-dom'],
+      alias: {
+        'lilak-ui': resolve(UI, 'src'),
+        ...Object.fromEntries(nodeOnly.map((m) => [m, jsrootNodeStub])),
+      },
+    },
     optimizeDeps: { include: ['@phosphor-icons/react', 'react-markdown', 'remark-gfm'] },
     server: { port: PORT, host: true, fs: { allow: [resolve(__dirname), UI] }, proxy: { '/api': BACKEND } },
   }
