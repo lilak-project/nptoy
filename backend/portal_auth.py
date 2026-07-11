@@ -1,52 +1,18 @@
-"""Portal SSO — verify the portal's HS256 JWT and read the profile claims.
+"""Portal SSO — re-exported from the shared `lilak_portal_auth` package.
 
-No local user DB: this service only *identifies* the caller. Secret precedence
-matches the portal: PORTAL_SECRET_KEY, then ELOG_SECRET_KEY, then a dev default.
+This used to be a per-service COPY of the token-verify / identity / introspect
+glue. It now lives once in `lilak_portal_auth` (installed in the shared portal
+venv); this thin re-export keeps the `from portal_auth import identity` call sites
+working. Add service-specific helpers here, not another copy of the shared core.
 """
-from __future__ import annotations
-
-import os
-from typing import Optional
-
-from jose import jwt
-from fastapi import Header, Request
-
-import portal_profile
-
-SECRET_KEY = (
-    os.environ.get("PORTAL_SECRET_KEY")
-    or os.environ.get("ELOG_SECRET_KEY")
-    or "lilak-dev-secret-CHANGE-in-production"
+from lilak_portal_auth import (  # noqa: F401  (re-export)
+    SECRET_KEY,
+    ALGORITHM,
+    MANAGER_COLOR,
+    decode_token,
+    bearer_from_request,
+    introspect,
+    fresh_payload,
+    identity,
+    list_accounts,
 )
-ALGORITHM = "HS256"
-
-
-def decode_token(token: str) -> Optional[dict]:
-    try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except Exception:
-        return None
-
-
-def _token_from_request(authorization: Optional[str], request: Request) -> Optional[str]:
-    if authorization and authorization.startswith("Bearer "):
-        return authorization[7:]
-    return request.cookies.get("lilak_portal_token") or request.cookies.get("elog_token")
-
-
-def identity(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
-    """Soft identity: returns a profile dict (anonymous when no valid token)."""
-    token = _token_from_request(authorization, request)
-    payload = decode_token(token) if token else None
-    if not payload:
-        return {"authenticated": False, "email": None, "username": None, "name": None, "role": None}
-    payload = portal_profile.current(payload, token)
-    return {
-        "authenticated": True,
-        "email": payload.get("email"),
-        "username": payload.get("username") or payload.get("name"),
-        "name": payload.get("name") or payload.get("username"),
-        "role": payload.get("prole") or payload.get("role"),
-        "color": payload.get("color"),
-        "shape": payload.get("shape"),
-    }
