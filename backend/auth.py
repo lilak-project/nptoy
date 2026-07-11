@@ -77,7 +77,7 @@ def require_user(authorization: Optional[str] = Header(default=None)) -> PortalU
     if not payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="로그인이 필요합니다.")
-    payload = portal_profile.current(payload)
+    payload = portal_profile.current(payload, token)
     email = payload.get("email")
     if not email:
         # A token without an email can't be linked to a workspace (link_by=email).

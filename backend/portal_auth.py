@@ -40,7 +40,7 @@ def identity(request: Request, authorization: Optional[str] = Header(default=Non
     payload = decode_token(token) if token else None
     if not payload:
         return {"authenticated": False, "email": None, "username": None, "name": None, "role": None}
-    payload = portal_profile.current(payload)
+    payload = portal_profile.current(payload, token)
     return {
         "authenticated": True,
         "email": payload.get("email"),
