@@ -13,10 +13,10 @@
  * triangles), plus overlap/error reports.
  */
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Stack, TreeStructure, SlidersHorizontal } from '@phosphor-icons/react'
+import { Stack, TreeStructure, SlidersHorizontal, Flask } from '@phosphor-icons/react'
 import {
   geomCatalog, geomMaterials, geomDocs, geomDocGet, geomDocPut, geomDocDelete,
-  geomDocRename, geomApply, geomRemove, geomValidate,
+  geomDocRename, geomApply, geomRemove, geomValidate, geomMatFileGet, geomMatFilePut,
 } from './api.js'
 import { parseDetector, serializeDetector, getParam, setParam } from './detector.js'
 
@@ -211,6 +211,165 @@ function Field({ name, spec, value, onChange, onHelp, materials }) {
   return <div style={{ marginBottom: 8 }}>{label}{input}</div>
 }
 
+// ── materials panel: browse the library, define workspace materials ───────────
+// Workspace definitions live in inputs/materials.txt (same NPL block syntax as
+// the shipped library); npsimulation overlays them at run/validate time, so a
+// saved material is immediately usable as a Volume's Material=.
+const MAT_EMPTY = { name: '', density: '', unit: 'g/cm3', state: 'Solid',
+  temperature: '293.15', pressure: '1', mode: 'Counts', rows: [{ el: '', v: '' }] }
+
+function matFormFromBlock(b) {
+  const den = String(getParam(b, 'Density') || '').trim().split(/\s+/)
+  const mode = getParam(b, 'MassFractions') ? 'MassFractions' : 'Counts'
+  const els = String(getParam(b, 'Elements') || '').trim().split(/\s+/).filter(Boolean)
+  const vals = String(getParam(b, mode) || '').trim().split(/\s+/).filter(Boolean)
+  return {
+    name: b.arg, density: den[0] || '', unit: den[1] || 'g/cm3',
+    state: getParam(b, 'State') || 'Solid',
+    temperature: (String(getParam(b, 'Temperature')).trim().split(/\s+/)[0]) || '293.15',
+    pressure: (String(getParam(b, 'Pressure')).trim().split(/\s+/)[0]) || '1',
+    mode, rows: els.length ? els.map((el, i) => ({ el, v: vals[i] || '' })) : [{ el: '', v: '' }],
+  }
+}
+
+function matBlockText(f) {
+  const rows = f.rows.filter((r) => r.el.trim())
+  const lines = [`Material ${f.name.trim()}`]
+  if (f.density.trim()) lines.push(` Density= ${f.density.trim()} ${f.unit}`)
+  if (f.state !== 'Solid') lines.push(` State= ${f.state}`)
+  if (f.state === 'Gas') {
+    lines.push(` Temperature= ${f.temperature || '293.15'} kelvin`)
+    lines.push(` Pressure= ${f.pressure || '1'} bar`)
+  }
+  lines.push(` Elements= ${rows.map((r) => r.el.trim()).join(' ')}`)
+  lines.push(` ${f.mode}= ${rows.map((r) => r.v.trim() || '0').join(' ')}`)
+  return lines.join('\n')
+}
+
+function MaterialsPanel({ materials, matText, onSave, S }) {
+  const [q, setQ] = useState('')
+  const [form, setForm] = useState(null) // null = list only
+  const [msg, setMsg] = useState('')
+  const wsNames = useMemo(() => new Set(parseDetector(matText).filter((b) => b.type === 'Material').map((b) => b.arg)), [matText])
+  const list = materials.filter((m) => !q || m.name.toLowerCase().includes(q.toLowerCase())
+    || (m.aliases || []).some((a) => a.toLowerCase().includes(q.toLowerCase())))
+
+  const save = async () => {
+    setMsg('')
+    const f = form
+    if (!/^[A-Za-z0-9_.\-]{1,48}$/.test(f.name.trim())) return setMsg('이름: 영문/숫자/_/-/. 1-48자')
+    const rows = f.rows.filter((r) => r.el.trim())
+    if (!rows.length) return setMsg('원소를 최소 1개 입력하세요')
+    if (!f.density.trim() && !(f.state === 'Gas' && f.mode === 'Counts')) return setMsg('밀도가 필요합니다 (가스+원자수 조합만 자동 계산)')
+    if (f.mode === 'MassFractions') {
+      const sum = rows.reduce((s, r) => s + (+r.v || 0), 0)
+      if (Math.abs(sum - 1) > 1e-3) return setMsg(`질량분율 합이 ${sum.toFixed(4)} — 1이 되어야 합니다`)
+    }
+    // replace-or-append the block in the workspace file
+    const blocks = parseDetector(matText).filter((b) => !(b.type === 'Material' && b.arg === f.name.trim()))
+    const kept = serializeDetector(blocks).trim()
+    const next = (kept ? kept + '\n\n' : '') + matBlockText(f) + '\n'
+    await onSave(next)
+    setForm(null)
+  }
+  const del = async (name) => {
+    const blocks = parseDetector(matText).filter((b) => !(b.type === 'Material' && b.arg === name))
+    await onSave(blocks.length ? serializeDetector(blocks) : '')
+  }
+  const inp = { width: '100%', boxSizing: 'border-box', padding: '4px 7px', fontSize: 12,
+    border: '1px solid var(--border-default,#ccc)', borderRadius: 6, background: 'var(--surface,#fff)' }
+
+  if (form) return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <b style={{ fontSize: 13 }}>{wsNames.has(form.name) ? '재료 편집' : '새 재료'}</b>
+        <button style={S.btn} onClick={() => setForm(null)}>목록으로</button>
+      </div>
+      <label style={{ fontSize: 12, fontWeight: 600 }}>이름</label>
+      <input style={{ ...inp, marginBottom: 6 }} value={form.name} placeholder="MyScint"
+        onChange={(e) => setForm({ ...form, name: e.target.value })} />
+      <label style={{ fontSize: 12, fontWeight: 600 }}
+        title="가스에서 원자수 조성일 때만 비워도 됩니다 (몰질량+이상기체로 자동 계산)">밀도</label>
+      <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
+        <input style={{ ...inp, flex: 1, minWidth: 0 }} value={form.density} placeholder="1.15"
+          onChange={(e) => setForm({ ...form, density: e.target.value })} />
+        <select style={{ ...inp, width: 90 }} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
+          {['g/cm3', 'mg/cm3', 'kg/m3'].map((u) => <option key={u}>{u}</option>)}
+        </select>
+      </div>
+      <label style={{ fontSize: 12, fontWeight: 600 }}>상태</label>
+      <select style={{ ...inp, marginBottom: 6 }} value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })}>
+        <option>Solid</option><option>Gas</option><option>Liquid</option>
+      </select>
+      {form.state === 'Gas' && (
+        <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
+          <span style={{ flex: 1 }}>
+            <label style={{ fontSize: 11, fontWeight: 600 }}>온도 (K)</label>
+            <input style={inp} value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} />
+          </span>
+          <span style={{ flex: 1 }}>
+            <label style={{ fontSize: 11, fontWeight: 600 }}>압력 (bar)</label>
+            <input style={inp} value={form.pressure} onChange={(e) => setForm({ ...form, pressure: e.target.value })} />
+          </span>
+        </div>
+      )}
+      <label style={{ fontSize: 12, fontWeight: 600 }}
+        title="원자 개수 = 분자식 (C 10, H 8 = C10H8) / 질량 분율 = 합이 1이 되는 비율">조성</label>
+      <select style={{ ...inp, marginBottom: 6 }} value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+        <option value="Counts">원자 개수 (분자)</option>
+        <option value="MassFractions">질량 분율 (합=1)</option>
+      </select>
+      {form.rows.map((r, i) => (
+        <div key={i} style={{ display: 'flex', gap: 5, marginBottom: 4 }}>
+          <input style={{ ...inp, width: 74 }} value={r.el} placeholder="C, H, Li6…"
+            onChange={(e) => setForm({ ...form, rows: form.rows.map((x, j) => j === i ? { ...x, el: e.target.value } : x) })} />
+          <input style={{ ...inp, flex: 1, minWidth: 0 }} value={r.v} placeholder={form.mode === 'Counts' ? '개수' : '분율'}
+            onChange={(e) => setForm({ ...form, rows: form.rows.map((x, j) => j === i ? { ...x, v: e.target.value } : x) })} />
+          <button style={{ ...S.btn, padding: '0 7px' }} onClick={() => setForm({ ...form, rows: form.rows.filter((_, j) => j !== i) })}>✕</button>
+        </div>
+      ))}
+      <button style={{ ...S.btn, width: '100%', marginBottom: 8 }}
+        onClick={() => setForm({ ...form, rows: [...form.rows, { el: '', v: '' }] })}>+ 원소</button>
+      {msg && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>{msg}</div>}
+      <button style={{ ...S.btnP, width: '100%' }} onClick={save}>저장 → materials.txt</button>
+      <div style={{ fontSize: 11, opacity: 0.65, marginTop: 6, lineHeight: 1.5 }}>
+        저장하면 워크스페이스 materials.txt에 기록되어 시뮬레이션/검증에서 바로 쓸 수 있고,
+        Volume의 Material= 자동완성에도 나타납니다. 같은 이름은 라이브러리 정의를 덮어씁니다.
+      </div>
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
+        <input style={{ ...inp, flex: 1, minWidth: 0 }} placeholder="검색…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button style={S.btnP} onClick={() => setForm({ ...MAT_EMPTY })}>+ 새 재료</button>
+      </div>
+      {list.map((m) => {
+        const ws = m.origin === 'workspace'
+        return (
+          <div key={m.name} style={S.row(false)} title={(m.aliases || []).join(' ')}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
+            <span style={{ fontSize: 10.5, opacity: 0.6 }}>{m.density || ''}</span>
+            {ws && <span style={{ fontSize: 10, background: 'var(--accent-soft,#efe9fb)', color: 'var(--accent,#7c5cbf)', borderRadius: 4, padding: '0 4px', fontWeight: 700 }}>내 재료</span>}
+            {ws ? (<>
+              <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} title="편집"
+                onClick={() => setForm(matFormFromBlock(parseDetector(matText).find((b) => b.type === 'Material' && b.arg === m.name)))}>✎</button>
+              <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} title="삭제" onClick={() => del(m.name)}>✕</button>
+            </>) : (
+              <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} title="이 정의를 바탕으로 새 재료 만들기"
+                onClick={() => setForm({ ...MAT_EMPTY, name: m.name + '_mod', density: (m.density || '').split(/\s+/)[0] || '',
+                  unit: (m.density || '').split(/\s+/)[1] || 'g/cm3', state: m.state || 'Solid',
+                  rows: (m.elements || ['']).map((el) => ({ el, v: '' })) })}>⧉</button>
+            )}
+          </div>
+        )
+      })}
+      {!list.length && <div style={{ fontSize: 12, opacity: 0.6 }}>검색 결과 없음</div>}
+    </div>
+  )
+}
+
 // ── main tab ──────────────────────────────────────────────────────────────────
 const NEW_DOC = `% new geometry
 Volume MyBox
@@ -247,8 +406,15 @@ export default function GeometryTab({ active = true }) {
     { key: 'docs', label: '지오메트리', Icon: Stack },
     { key: 'blocks', label: '블록', Icon: TreeStructure },
     { key: 'props', label: '속성', Icon: SlidersHorizontal },
+    { key: 'materials', label: '재료', Icon: Flask },
   ]
-  const [open, setOpen] = useState({ docs: true, blocks: true, props: false })
+  const [open, setOpen] = useState({ docs: true, blocks: true, props: false, materials: false })
+  const [matText, setMatText] = useState('')   // workspace materials.txt (raw)
+  const saveMatFile = async (content) => {
+    await geomMatFilePut(content)
+    setMatText(content)
+    geomMaterials().then((d) => setMaterials(d.materials)).catch(() => {})
+  }
   const togglePanel = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
   const openPanels = PANELS.filter((p) => open[p.key])
   // selecting a block opens the property panel (still closable by hand)
@@ -258,6 +424,7 @@ export default function GeometryTab({ active = true }) {
   useEffect(() => {
     geomCatalog().then(setCatalog).catch((e) => setErr(String(e.message || e)))
     geomMaterials().then((d) => setMaterials(d.materials)).catch(() => {})
+    geomMatFileGet().then((d) => setMatText(d.content)).catch(() => {})
     refreshDocs().catch((e) => setErr(String(e.message || e)))
   }, [])
 
@@ -547,6 +714,10 @@ export default function GeometryTab({ active = true }) {
               )}
               {!docName && <div style={{ fontSize: 12, opacity: 0.6 }}>지오메트리를 먼저 선택하세요.</div>}
             </>)}
+
+            {key === 'materials' && (
+              <MaterialsPanel materials={materials} matText={matText} onSave={saveMatFile} S={S} />
+            )}
 
             {key === 'props' && (<>
               {!sel && <div style={{ fontSize: 13, opacity: 0.6 }}>블록을 선택하거나 추가하세요.<br /><br />

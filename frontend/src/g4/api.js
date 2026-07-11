@@ -49,6 +49,8 @@ export const fetchJobScene = (id, from = 0, count = 0) =>
 // ── geometry tab (catalog / materials / documents / Geant4 validation) ────────
 export const geomCatalog = () => req('api/geometry/catalog')
 export const geomMaterials = () => req('api/geometry/materials')
+export const geomMatFileGet = () => req('api/geometry/materials/file')
+export const geomMatFilePut = (content) => req('api/geometry/materials/file', 'PUT', { content })
 export const geomDocs = () => req('api/geometry/docs')
 export const geomDocGet = (name) => req(`api/geometry/doc?name=${encodeURIComponent(name)}`)
 export const geomDocPut = (name, content) => req('api/geometry/doc', 'PUT', { name, content })

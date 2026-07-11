@@ -503,6 +503,22 @@ def geometry_materials(user: PortalUser = Depends(require_user)) -> dict:
     return {"materials": geomlib.materials(user.user_key)}
 
 
+class MatFile(BaseModel):
+    content: str
+
+
+@app.get("/api/geometry/materials/file")
+def geometry_materials_file_get(user: PortalUser = Depends(require_user)) -> dict:
+    """Raw workspace materials.txt (the overlay npsimulation loads from cwd)."""
+    return {"content": geomlib.read_material_file(user.user_key)}
+
+
+@app.put("/api/geometry/materials/file")
+def geometry_materials_file_put(body: MatFile, user: PortalUser = Depends(require_user)) -> dict:
+    geomlib.write_material_file(user.user_key, body.content)
+    return {"ok": True}
+
+
 @app.get("/api/geometry/docs")
 def geometry_docs(user: PortalUser = Depends(require_user)) -> dict:
     return {"docs": geomlib.list_docs(user.user_key)}

@@ -99,6 +99,19 @@ def materials(user_key: str | None = None) -> list[dict]:
     return sorted(table.values(), key=lambda e: e["name"].lower())
 
 
+def read_material_file(user_key: str) -> str:
+    """The user's workspace materials.txt (overlay the simulation actually loads
+    from its working directory), '' if none exists yet."""
+    p = inputs.root(user_key) / "materials.txt"
+    return p.read_text(errors="replace") if p.exists() else ""
+
+
+def write_material_file(user_key: str, content: str) -> None:
+    ws = inputs.root(user_key)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "materials.txt").write_text(content)
+
+
 # ── geometry documents ─────────────────────────────────────────────────────────
 def _docs_dir(user_key: str) -> Path:
     d = config.USERS_ROOT / user_key / "geometries"
