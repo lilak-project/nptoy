@@ -335,10 +335,11 @@ function Solids({ geometry, hidden, styles, onPick }) {
   })
 }
 
-// Opt-in translate gizmo (geometry editor): wraps a wire proxy of the target
-// volume; dragging moves the proxy, releasing commits the new position. The
+// Opt-in translate/rotate gizmo (geometry editor): wraps a wire proxy of the
+// target volume; dragging edits the proxy, releasing commits {position, rot9}
+// (rot9 = the gizmo group's world-frame delta rotation, row-major). The
 // makeDefault OrbitControls is auto-disabled by drei while dragging.
-function MoveGizmo({ g, onCommit }) {
+function EditGizmo({ g, mode, onCommit }) {
   const ctlRef = useRef()
   const { pos, quat } = useMemo(() => {
     const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
@@ -348,9 +349,17 @@ function MoveGizmo({ g, onCommit }) {
   const size = g.type === 'box' ? g.size
     : g.type === 'cylinder' ? [g.rmax * 2, g.rmax * 2, g.height]
     : g.type === 'sphere' ? [g.radius * 2, g.radius * 2, g.radius * 2] : [40, 40, 40]
+  const commit = () => {
+    const o = ctlRef.current?.object
+    if (!o || !onCommit) return
+    const e = new THREE.Matrix4().makeRotationFromQuaternion(o.quaternion).elements // column-major
+    onCommit({
+      position: o.position.toArray(),
+      rot9: [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]], // row-major 3x3
+    })
+  }
   return (
-    <TransformControls ref={ctlRef} mode="translate" position={pos}
-      onMouseUp={() => { const o = ctlRef.current?.object; if (o && onCommit) onCommit(o.position.toArray()) }}>
+    <TransformControls ref={ctlRef} mode={mode || 'translate'} position={pos} onMouseUp={commit}>
       <mesh quaternion={quat}>
         <boxGeometry args={[size[0] || 10, size[1] || 10, size[2] || 10]} />
         <meshBasicMaterial color="#ff2d95" wireframe transparent opacity={0.9} />
@@ -877,7 +886,8 @@ export default function Viewer({ geometry, event, show, hidden, styles, trackSty
             <Labels geometry={geometry} hidden={hidden} styles={styles} />
             {transform && (() => {
               const tg = geometry.find((g) => g.name === transform.name)
-              return tg ? <MoveGizmo key={`${tg.name}:${(tg.pos || []).join(',')}`} g={tg} onCommit={transform.onCommit} /> : null
+              return tg ? <EditGizmo key={`${tg.name}:${transform.mode}:${(tg.pos || []).join(',')}:${(tg.rot || []).join(',')}`}
+                g={tg} mode={transform.mode} onCommit={transform.onCommit} /> : null
             })()}
             {show.tracks && (animTracks
               ? <AnimatedTracks tracks={animTracks} playing={!!animPlaying} duration={animDuration || 0.4}

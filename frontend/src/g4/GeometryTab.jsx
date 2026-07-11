@@ -79,6 +79,34 @@ function worldToMotherLocal(blocks, name, world) {
   return apply3(tr3(P.R), d)
 }
 
+// Euler angles (deg) in the G4 convention R = Rz(rz)·Ry(ry)·Rx(rx), from a
+// row-major 3x3. Standard ZYX extraction; at the ry = ±90° gimbal point rx
+// and rz are degenerate — fold everything into rz.
+function eulerZYX(R) {
+  const r20 = Math.max(-1, Math.min(1, R[6]))
+  const ry = Math.asin(-r20)
+  let rx, rz
+  if (Math.abs(r20) < 0.999999) {
+    rx = Math.atan2(R[7], R[8])
+    rz = Math.atan2(R[3], R[0])
+  } else {
+    rx = 0
+    rz = Math.atan2(-R[1], R[4])
+  }
+  return [rx / DEG, ry / DEG, rz / DEG]
+}
+
+// a world-frame delta rotation applied to the volume, expressed as its new
+// local RotateXYZ: R'l = Rpᵀ · ΔR · Rw  (Rw = current world rotation)
+function rotateCommit(blocks, name, dRot9) {
+  const b = blocks.find((x) => x.type === 'Volume' && x.arg === name)
+  const mother = b && getParam(b, 'Mother')
+  const W = worldPlacementOf(blocks, name)
+  const newWorld = mul3(dRot9, W.R)
+  const Rp = (!mother || mother === 'world') ? I3 : worldPlacementOf(blocks, mother).R
+  return eulerZYX(mul3(tr3(Rp), newWorld))
+}
+
 // ── live preview: blocks → Viewer scene items (same JSON the run viewer eats) ──
 // Exact for Box/Tubs/Sphere/Orb; bounding approximations (rendered as wire) for
 // the rest — the Geant4 validation swaps in the exact tessellated shapes.
@@ -210,6 +238,7 @@ export default function GeometryTab({ active = true }) {
   const [addSel, setAddSel] = useState('Volume')
   const [err, setErr] = useState('')
   const [editMode, setEditMode] = useState(false)  // click-select + drag gizmo (off = orbit only)
+  const [gizmoMode, setGizmoMode] = useState('translate') // translate | rotate
   const controlsRef = useRef(null)
 
   const refreshDocs = async () => setDocs((await geomDocs()).docs)
@@ -252,9 +281,15 @@ export default function GeometryTab({ active = true }) {
   } : undefined
   const transformSpec = editMode && !validated && sel?.type === 'Volume' && sel.arg ? {
     name: sel.arg,
-    onCommit: (worldPos) => {
-      const local = worldToMotherLocal(blocks, sel.arg, worldPos)
-      setField('POS', local.map((x) => +x.toFixed(2)).join(' ') + ' mm')
+    mode: gizmoMode,
+    onCommit: ({ position, rot9 }) => {
+      if (gizmoMode === 'rotate') {
+        const [rx, ry, rz] = rotateCommit(blocks, sel.arg, rot9)
+        setField('RotateXYZ', [rx, ry, rz].map((x) => +x.toFixed(1)).join(' ') + ' deg')
+      } else {
+        const local = worldToMotherLocal(blocks, sel.arg, position)
+        setField('POS', local.map((x) => +x.toFixed(2)).join(' ') + ' mm')
+      }
     },
   } : undefined
 
@@ -457,8 +492,18 @@ export default function GeometryTab({ active = true }) {
           <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮길 수 있습니다 (POS 자동 반영)"
             style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
             onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
+          {editMode && (
+            <span style={{ display: 'inline-flex', gap: 2 }}>
+              {[['translate', '이동'], ['rotate', '회전']].map(([m, label]) => (
+                <button key={m} style={{ ...S.btn, padding: '3px 9px',
+                  background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
+                  color: gizmoMode === m ? '#fff' : 'inherit' }}
+                  onClick={() => setGizmoMode(m)}>{label}</button>
+              ))}
+            </span>
+          )}
           <span style={{ fontSize: 12, opacity: 0.7 }}>
-            {editMode ? '편집 모드 — 클릭=선택, 화살표 드래그=이동' :
+            {editMode ? `편집 모드 — 클릭=선택, 드래그=${gizmoMode === 'rotate' ? '회전 (RotateXYZ 반영)' : '이동 (POS 반영)'}` :
               validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)'}
           </span>
           {err && <span style={{ color: '#dc2626', fontSize: 12, fontWeight: 600 }}>{err}</span>}
