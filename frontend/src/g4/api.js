@@ -46,6 +46,18 @@ const _pg = (from, count) => (count ? `tracks_from=${from}&tracks_count=${count}
 export const fetchJobScene = (id, from = 0, count = 0) =>
   req(`api/jobs/${id}/viewer${_pg(from, count) ? '?' + _pg(from, count) : ''}`)
 
+// ── geometry tab (catalog / materials / documents / Geant4 validation) ────────
+export const geomCatalog = () => req('api/geometry/catalog')
+export const geomMaterials = () => req('api/geometry/materials')
+export const geomDocs = () => req('api/geometry/docs')
+export const geomDocGet = (name) => req(`api/geometry/doc?name=${encodeURIComponent(name)}`)
+export const geomDocPut = (name, content) => req('api/geometry/doc', 'PUT', { name, content })
+export const geomDocDelete = (name) => req(`api/geometry/doc?name=${encodeURIComponent(name)}`, 'DELETE')
+export const geomDocRename = (name, newName) => req('api/geometry/doc/rename', 'POST', { name, new: newName })
+export const geomApply = (name) => req('api/geometry/apply', 'POST', { name })
+export const geomRemove = (name) => req('api/geometry/remove', 'POST', { name })
+export const geomValidate = (content) => req('api/geometry/validate', 'POST', { content })
+
 // ── input workspace (3 editable slots: physics / detector / reaction) ─────────
 export const inputsState = () => req('api/inputs')
 export const inputsGetFile = (slot) => req(`api/inputs/file?slot=${encodeURIComponent(slot)}`)

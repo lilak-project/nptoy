@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nptoy-backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && exec /Users/jungwoo/web_service/service_manager/.venv/bin/uvicorn main:app --port 8340"],
+      "port": 8340
+    }
+  ]
+}

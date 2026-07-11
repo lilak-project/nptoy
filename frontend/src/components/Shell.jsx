@@ -10,12 +10,14 @@ import { communityApi } from '../community_api'
 import { ENABLED_THEMES } from '../theme/main'
 import SettingsPage from '../pages/SettingsPage'
 import FilesTab from '../g4/FilesTab.jsx'
+import GeometryTab from '../g4/GeometryTab.jsx'
 import InputsTab from '../g4/InputsTab.jsx'
 import SimulationTab from '../g4/SimulationTab.jsx'
 import Community from './Community.jsx'
 
 const TABS = [
   { id: "setup", icon: "home" },
+  { id: "geometry", icon: "shapes" },
   { id: "simulation", icon: "spinner" },
   { id: "files", icon: "folder" },
   { id: "community", icon: "community" },
@@ -236,6 +238,7 @@ export default function Shell() {
 
   const PAGES = {
     setup: <InputsTab onSetupName={setProj} />,
+    geometry: <GeometryTab active={tab === 'geometry'} />,
     simulation: <SimulationTab />,
     files: <FilesTab active={tab === 'files'} />,
     community: <Community role={me.role} onOpenFiles={() => setTab('files')} active={tab === 'community'} />,
