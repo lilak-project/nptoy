@@ -192,6 +192,13 @@ def stage_file_for_render(user_key, abspath) -> str:
     if not (dest.exists() and dest.stat().st_size == st.st_size
             and dest.stat().st_mtime >= st.st_mtime):
         shutil.copy2(src, dest)
+    # Bump the cache file's mtime to now on every stage/hit so the janitor evicts by
+    # LAST USE (LRU). This keeps the validity check above true (now >= src mtime); a
+    # later re-simulation gives src a newer mtime → cache miss → re-copy, as intended.
+    try:
+        os.utime(dest, None)
+    except OSError:
+        pass
     return dest.resolve().relative_to(SCI_SHARED_DIR.resolve()).as_posix()
 
 

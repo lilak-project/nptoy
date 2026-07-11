@@ -24,6 +24,7 @@ from pydantic import BaseModel
 import websockets
 
 import browse
+import cleanup
 import common
 import config
 import db
@@ -51,6 +52,7 @@ def _startup() -> None:
     config.ensure_dirs()
     common.build_common()          # extract preset workspaces from nptool sources
     migrate.run()                  # one-time: users/ → user/ + new layout
+    cleanup.start()                # reclaim crash-leaked /sci staging + evict render cache
     worker.start()
 
 
