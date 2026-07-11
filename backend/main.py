@@ -28,6 +28,7 @@ import cleanup
 import common
 import config
 import db
+import geomlib
 import inputs
 import migrate
 import params as params_mod
@@ -470,6 +471,112 @@ def inputs_put_file(body: SaveSlot, user: PortalUser = Depends(require_user)) ->
     except (ValueError, FileNotFoundError):
         raise HTTPException(status_code=400, detail="잘못된 슬롯입니다.")
     return {"ok": True}
+
+
+# ── geometry tab: catalog, materials, documents, validation ───────────────────
+class GeomDoc(BaseModel):
+    name: str
+    content: str = ""
+
+
+class GeomRename(BaseModel):
+    name: str
+    new: str
+
+
+class GeomValidate(BaseModel):
+    content: str
+
+
+@app.get("/api/geometry/catalog")
+def geometry_catalog(_: PortalUser = Depends(require_user)) -> dict:
+    """detectors.json from the nptool tree: per-detector token schema (variants,
+    field types/units/descriptions). The Geometry tab builds all forms from this."""
+    try:
+        return geomlib.catalog()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="detectors.json이 없습니다. nptool 빌드를 먼저 실행하세요.")
+
+
+@app.get("/api/geometry/materials")
+def geometry_materials(user: PortalUser = Depends(require_user)) -> dict:
+    return {"materials": geomlib.materials(user.user_key)}
+
+
+@app.get("/api/geometry/docs")
+def geometry_docs(user: PortalUser = Depends(require_user)) -> dict:
+    return {"docs": geomlib.list_docs(user.user_key)}
+
+
+@app.get("/api/geometry/doc")
+def geometry_doc_get(name: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        return {"name": name, "content": geomlib.read_doc(user.user_key, name)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="지오메트리를 찾을 수 없습니다.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/geometry/doc")
+def geometry_doc_put(body: GeomDoc, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        geomlib.write_doc(user.user_key, body.name, body.content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/geometry/doc")
+def geometry_doc_delete(name: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        geomlib.delete_doc(user.user_key, name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.post("/api/geometry/doc/rename")
+def geometry_doc_rename(body: GeomRename, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        geomlib.rename_doc(user.user_key, body.name, body.new)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="지오메트리를 찾을 수 없습니다.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.post("/api/geometry/apply")
+def geometry_apply(body: GeomDoc, user: PortalUser = Depends(require_user)) -> dict:
+    """Splice the document's Solid/Volume blocks into the detector slot (marker
+    region named after the document; re-apply refreshes in place)."""
+    try:
+        geomlib.apply_to_detector(user.user_key, body.name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="지오메트리를 찾을 수 없습니다.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.post("/api/geometry/remove")
+def geometry_remove(body: GeomDoc, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        removed = geomlib.remove_from_detector(user.user_key, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "removed": removed}
+
+
+@app.post("/api/geometry/validate")
+def geometry_validate(body: GeomValidate, user: PortalUser = Depends(require_user)) -> dict:
+    """Run the geometry through Geant4 for real: construct, per-placement overlap
+    check, and export the exact scene for the viewer."""
+    try:
+        return geomlib.validate(user.user_key, body.content)
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
 
 
 # ── per-slot personal library (save/load/share a single input file) ───────────
