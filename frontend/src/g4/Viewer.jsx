@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
-import { OrbitControls, GizmoHelper, GizmoViewport, Html, PerspectiveCamera, OrthographicCamera } from '@react-three/drei'
+import { OrbitControls, GizmoHelper, GizmoViewport, Html, PerspectiveCamera, OrthographicCamera, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
@@ -290,7 +290,7 @@ function tubeSectorGeometry(rmin, rmax, height, phi0, dphi) {
 
 // A single solid/transparent volume as a real filled mesh (flat MeshBasicMaterial,
 // no lights needed). Placed via the volume's global transform.
-function SolidMesh({ g, fill, opacity, transparent }) {
+function SolidMesh({ g, fill, opacity, transparent, onPick }) {
   const geom = useMemo(() => {
     let gg
     if (g.type === 'box') gg = new THREE.BoxGeometry(g.size[0], g.size[1], g.size[2])
@@ -315,7 +315,8 @@ function SolidMesh({ g, fill, opacity, transparent }) {
     return { pos: p, quat: q }
   }, [g])
   return (
-    <mesh geometry={geom} position={pos} quaternion={quat}>
+    <mesh geometry={geom} position={pos} quaternion={quat}
+      onClick={onPick ? (e) => { e.stopPropagation(); onPick(g) } : undefined}>
       <meshBasicMaterial color={fill} transparent={transparent} opacity={opacity}
         depthWrite={!transparent} side={THREE.DoubleSide}
         polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={1} />
@@ -324,14 +325,38 @@ function SolidMesh({ g, fill, opacity, transparent }) {
 }
 
 // All volumes the user set to solid/transparent (default is wire → none here).
-function Solids({ geometry, hidden, styles }) {
+function Solids({ geometry, hidden, styles, onPick }) {
   return geometry.map((g) => {
     if (hidden.has(g.id)) return null
     const s = effStyle(g, styles)
     if (s.mode !== 'solid' && s.mode !== 'transparent') return null
-    return <SolidMesh key={g.id} g={g} fill={s.fill}
+    return <SolidMesh key={g.id} g={g} fill={s.fill} onPick={onPick}
       transparent={s.mode === 'transparent'} opacity={s.mode === 'transparent' ? s.opacity : 1} />
   })
+}
+
+// Opt-in translate gizmo (geometry editor): wraps a wire proxy of the target
+// volume; dragging moves the proxy, releasing commits the new position. The
+// makeDefault OrbitControls is auto-disabled by drei while dragging.
+function MoveGizmo({ g, onCommit }) {
+  const ctlRef = useRef()
+  const { pos, quat } = useMemo(() => {
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+    mat4(g).decompose(p, q, s)
+    return { pos: p, quat: q }
+  }, [g])
+  const size = g.type === 'box' ? g.size
+    : g.type === 'cylinder' ? [g.rmax * 2, g.rmax * 2, g.height]
+    : g.type === 'sphere' ? [g.radius * 2, g.radius * 2, g.radius * 2] : [40, 40, 40]
+  return (
+    <TransformControls ref={ctlRef} mode="translate" position={pos}
+      onMouseUp={() => { const o = ctlRef.current?.object; if (o && onCommit) onCommit(o.position.toArray()) }}>
+      <mesh quaternion={quat}>
+        <boxGeometry args={[size[0] || 10, size[1] || 10, size[2] || 10]} />
+        <meshBasicMaterial color="#ff2d95" wireframe transparent opacity={0.9} />
+      </mesh>
+    </TransformControls>
+  )
 }
 
 // Default per-track colour (distinct hue by index) when no override is set.
@@ -816,7 +841,8 @@ function Cameras({ ortho, initPos, target, radius }) {
 }
 
 export default function Viewer({ geometry, event, show, hidden, styles, trackStyles, pointStyle, ortho, bgColor, controlsRef, apiRef,
-  animTracks, animPlaying, animDuration, animCtlRef, onAnimDone }) {
+  animTracks, animPlaying, animDuration, animCtlRef, onAnimDone,
+  onPick, transform }) {  // opt-in editor hooks: click-to-pick + translate gizmo (geometry tab)
   // keep the latest onAnimDone reachable from AnimatedTracks' useFrame loop
   const animDoneRef = useRef()
   animDoneRef.current = onAnimDone
@@ -847,8 +873,12 @@ export default function Viewer({ geometry, event, show, hidden, styles, trackSty
         <group ref={rollRef}>
           <group position={negCenter}>
             <Geometry geometry={geometry} hidden={hidden} styles={styles} />
-            <Solids geometry={geometry} hidden={hidden} styles={styles} />
+            <Solids geometry={geometry} hidden={hidden} styles={styles} onPick={onPick} />
             <Labels geometry={geometry} hidden={hidden} styles={styles} />
+            {transform && (() => {
+              const tg = geometry.find((g) => g.name === transform.name)
+              return tg ? <MoveGizmo key={`${tg.name}:${(tg.pos || []).join(',')}`} g={tg} onCommit={transform.onCommit} /> : null
+            })()}
             {show.tracks && (animTracks
               ? <AnimatedTracks tracks={animTracks} playing={!!animPlaying} duration={animDuration || 0.4}
                   ctlRef={animCtlRef} onDone={() => animDoneRef.current && animDoneRef.current()}

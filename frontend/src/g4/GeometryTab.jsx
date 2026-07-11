@@ -57,6 +57,27 @@ const apply3 = (A, v) => [
 ]
 // compose parent ∘ local placements: R = Rp·Rl, T = Rp·Tl + Tp
 const compose = (P, L) => ({ R: mul3(P.R, L.R), T: apply3(P.R, L.T).map((x, i) => x + P.T[i]) })
+const tr3 = (A) => [A[0], A[3], A[6], A[1], A[4], A[7], A[2], A[5], A[8]] // rotation inverse
+
+// world placement of a named Volume block (mother-chain composition)
+function worldPlacementOf(blocks, name, depth = 0) {
+  const b = blocks.find((x) => x.type === 'Volume' && x.arg === name)
+  if (!b || depth > 32) return { R: I3, T: [0, 0, 0] }
+  const local = { R: rot3(...n3(getParam(b, 'RotateXYZ'))), T: n3(getParam(b, 'POS')) }
+  const mother = getParam(b, 'Mother')
+  if (!mother || mother === 'world') return local
+  return compose(worldPlacementOf(blocks, mother, depth + 1), local)
+}
+
+// a dragged world position expressed in the volume's mother frame (= its POS)
+function worldToMotherLocal(blocks, name, world) {
+  const b = blocks.find((x) => x.type === 'Volume' && x.arg === name)
+  const mother = b && getParam(b, 'Mother')
+  if (!mother || mother === 'world') return world
+  const P = worldPlacementOf(blocks, mother)
+  const d = [world[0] - P.T[0], world[1] - P.T[1], world[2] - P.T[2]]
+  return apply3(tr3(P.R), d)
+}
 
 // ── live preview: blocks → Viewer scene items (same JSON the run viewer eats) ──
 // Exact for Box/Tubs/Sphere/Orb; bounding approximations (rendered as wire) for
@@ -188,6 +209,7 @@ export default function GeometryTab({ active = true }) {
   const [help, setHelp] = useState(null)             // {name, text}
   const [addSel, setAddSel] = useState('Volume')
   const [err, setErr] = useState('')
+  const [editMode, setEditMode] = useState(false)  // click-select + drag gizmo (off = orbit only)
   const controlsRef = useRef(null)
 
   const refreshDocs = async () => setDocs((await geomDocs()).docs)
@@ -201,18 +223,40 @@ export default function GeometryTab({ active = true }) {
   const sel = selIdx >= 0 && selIdx < blocks.length ? blocks[selIdx] : null
   const selName = sel ? (sel.type === 'Volume' || sel.type === 'Solid' ? sel.arg : `${sel.type}${sel.arg ? ' ' + sel.arg : ''}`) : ''
 
-  // scene + per-volume display styles for the shared Viewer
+  // scene + per-volume display styles for the shared Viewer. In edit mode every
+  // volume renders as a pickable transparent mesh (wire lines can't be clicked).
   const scene = validated || items
   const viewStyles = useMemo(() => {
     const st = {}
-    for (const it of items)
-      st[it.name] = it._approx ? { mode: 'wire', width: 2 } : { mode: 'transparent', opacity: it._alpha, noWire: false }
+    for (const it of scene) {
+      if (it._approx === undefined) // validated scene item
+        st[it.name] = editMode ? { mode: 'transparent', opacity: 0.3 } : {}
+      else if (it._approx)
+        st[it.name] = editMode ? { mode: 'transparent', opacity: 0.25 } : { mode: 'wire', width: 2 }
+      else
+        st[it.name] = { mode: 'transparent', opacity: it._alpha }
+    }
     if (selName) {
-      st[selName] = { ...(st[selName] || {}), highlight: true, mode: 'solid', opacity: 0.9 }
-      st[selName + '_log'] = { highlight: true } // validated scene names carry the _log suffix
+      st[selName] = { ...(st[selName] || {}), highlight: true }
+      st[selName + '_log'] = { ...(st[selName + '_log'] || {}), highlight: true }
     }
     return st
-  }, [items, selName])
+  }, [scene, selName, editMode])
+
+  // edit-mode hooks for the Viewer: click-to-select + translate gizmo
+  const pickHandler = editMode ? (g) => {
+    const nm = (g.name || '').replace(/_log$/, '')
+    const i = blocks.findIndex((b) =>
+      (b.type === 'Volume' || b.type === 'Solid') ? b.arg === nm : `${b.type}${b.arg ? ' ' + b.arg : ''}` === nm)
+    if (i >= 0) setSelIdx(i)
+  } : undefined
+  const transformSpec = editMode && !validated && sel?.type === 'Volume' && sel.arg ? {
+    name: sel.arg,
+    onCommit: (worldPos) => {
+      const local = worldToMotherLocal(blocks, sel.arg, worldPos)
+      setField('POS', local.map((x) => +x.toFixed(2)).join(' ') + ' mm')
+    },
+  } : undefined
 
   // schema for the selected block: Volume/Solid or any catalog detector
   const schema = useMemo(() => {
@@ -410,8 +454,12 @@ export default function GeometryTab({ active = true }) {
             {busy === 'validate' ? 'Geant4 실행 중…' : 'Geant4 검증'}
           </button>
           {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브 미리보기로</button>}
+          <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮길 수 있습니다 (POS 자동 반영)"
+            style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
+            onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
           <span style={{ fontSize: 12, opacity: 0.7 }}>
-            {validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)'}
+            {editMode ? '편집 모드 — 클릭=선택, 화살표 드래그=이동' :
+              validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)'}
           </span>
           {err && <span style={{ color: '#dc2626', fontSize: 12, fontWeight: 600 }}>{err}</span>}
         </div>
@@ -421,7 +469,7 @@ export default function GeometryTab({ active = true }) {
             <Suspense fallback={<div style={{ padding: 20, fontSize: 13, opacity: 0.6 }}>3D 뷰어 로딩…</div>}>
               <Viewer geometry={scene} event={EMPTY_EVENT} styles={viewStyles} hidden={NO_HIDDEN}
                 show={{ tracks: false, edep: false, axes: true, pointSize: 0.5 }}
-                controlsRef={controlsRef} />
+                controlsRef={controlsRef} onPick={pickHandler} transform={transformSpec} />
             </Suspense>
           )}
         </div>
