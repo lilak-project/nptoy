@@ -58,7 +58,7 @@ WORKER_POLL_SEC = float(os.environ.get("NPTOY_WORKER_POLL_SEC", "1.0"))
 # live sessions via `-N`. Paths are env-configurable so the SAME code runs on the
 # Mac dev box (defaults below) and in the sci-runner container (NPTOY_NPTOOL_ROOT=
 # /opt/nptool). See sci-runner/DEPLOY.md.
-NPTOOL_ROOT = os.environ.get("NPTOY_NPTOOL_ROOT", "/Users/jungwoo/Research/nptool_cens")
+NPTOOL_ROOT = os.environ.get("NPTOY_NPTOOL_ROOT", "/Users/jungwoo/web_service/nptool_cens")
 NPTOOL_SETUP = os.environ.get("NPTOY_NPTOOL_SETUP", f"{NPTOOL_ROOT}/nptool.sh")
 
 # Whitelisted projects (never arbitrary paths/commands). Used by both batch jobs
