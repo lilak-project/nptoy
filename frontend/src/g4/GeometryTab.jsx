@@ -13,6 +13,7 @@
  * triangles), plus overlap/error reports.
  */
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Stack, TreeStructure, SlidersHorizontal } from '@phosphor-icons/react'
 import {
   geomCatalog, geomMaterials, geomDocs, geomDocGet, geomDocPut, geomDocDelete,
   geomDocRename, geomApply, geomRemove, geomValidate,
@@ -241,6 +242,18 @@ export default function GeometryTab({ active = true }) {
   const [gizmoMode, setGizmoMode] = useState('translate') // translate | rotate
   const controlsRef = useRef(null)
 
+  // dock panels (left icon rail, like the other tabs); open ones stack left→right
+  const PANELS = [
+    { key: 'docs', label: '지오메트리', Icon: Stack },
+    { key: 'blocks', label: '블록', Icon: TreeStructure },
+    { key: 'props', label: '속성', Icon: SlidersHorizontal },
+  ]
+  const [open, setOpen] = useState({ docs: true, blocks: true, props: false })
+  const togglePanel = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
+  const openPanels = PANELS.filter((p) => open[p.key])
+  // selecting a block opens the property panel (still closable by hand)
+  const selectBlock = (i) => { setSelIdx(i); if (i >= 0) setOpen((o) => (o.props ? o : { ...o, props: true })) }
+
   const refreshDocs = async () => setDocs((await geomDocs()).docs)
   useEffect(() => {
     geomCatalog().then(setCatalog).catch((e) => setErr(String(e.message || e)))
@@ -277,7 +290,7 @@ export default function GeometryTab({ active = true }) {
     const nm = (g.name || '').replace(/_log$/, '')
     const i = blocks.findIndex((b) =>
       (b.type === 'Volume' || b.type === 'Solid') ? b.arg === nm : `${b.type}${b.arg ? ' ' + b.arg : ''}` === nm)
-    if (i >= 0) setSelIdx(i)
+    if (i >= 0) selectBlock(i)
   } : undefined
   const transformSpec = editMode && !validated && sel?.type === 'Volume' && sel.arg ? {
     name: sel.arg,
@@ -365,7 +378,7 @@ export default function GeometryTab({ active = true }) {
         return { key: k, value: v }
       })
     }
-    touch([...blocks, b]); setSelIdx(blocks.length)
+    touch([...blocks, b]); selectBlock(blocks.length)
   }
   const removeBlock = (i) => { const nb = blocks.filter((_, j) => j !== i); touch(nb); setSelIdx(-1) }
 
@@ -415,159 +428,182 @@ export default function GeometryTab({ active = true }) {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '250px 1fr 320px', gap: 10, height: '100%', padding: 10, boxSizing: 'border-box' }}>
-      {/* ── left: documents + block tree ── */}
-      <div style={S.col}>
-        <div style={{ ...S.box, flex: '0 0 auto', maxHeight: '38%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <b style={{ fontSize: 13 }}>지오메트리</b>
-            <button style={S.btn} onClick={() => setNewName(newName === null ? '' : null)}>+ 새로</button>
-          </div>
-          {newName !== null && (
-            <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
-              <input autoFocus style={{ flex: 1, padding: '4px 8px', fontSize: 12, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
-                placeholder="이름 (영문/숫자/_/-)" value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') newDoc(); if (e.key === 'Escape') setNewName(null) }} />
-              <button style={S.btnP} onClick={newDoc}>생성</button>
-            </div>
-          )}
-          {docs.map((d) => (
-            <div key={d.name} style={S.row(d.name === docName)} onClick={() => openDoc(d.name)}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</span>
-              <span style={{ fontSize: 11, opacity: 0.6 }}>{d.volumes}V {d.solids}S</span>
-              <button title={d.applied ? 'detector.txt에서 제거' : 'detector.txt에 적용'} style={{ ...S.btn, padding: '1px 7px', background: d.applied ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: d.applied ? '#fff' : 'inherit' }}
-                onClick={(e) => { e.stopPropagation(); applyDoc(d.name, d.applied) }}>{d.applied ? '적용됨' : '적용'}</button>
-              {pendingDel === d.name
-                ? <button style={{ ...S.btn, padding: '1px 7px', color: '#dc2626', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); removeDoc(d.name); setPendingDel('') }}>확인</button>
-                : <button style={{ ...S.btn, padding: '1px 7px' }} onClick={(e) => { e.stopPropagation(); setPendingDel(d.name); setTimeout(() => setPendingDel(''), 2500) }}>✕</button>}
-            </div>
-          ))}
-          {!docs.length && <div style={{ fontSize: 12, opacity: 0.6 }}>아직 없음 — "새로"로 시작</div>}
-        </div>
-
-        <div style={{ ...S.box, flex: 1 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <b style={{ fontSize: 13 }}>블록 {docName && <span style={{ fontWeight: 400, opacity: 0.65 }}>— {docName}{dirty ? ' *' : ''}</span>}</b>
-          </div>
-          {tree.map(({ b, i, depth }) => (
-            <div key={i} style={{ ...S.row(i === selIdx), paddingLeft: 7 + depth * 14 }} onClick={() => setSelIdx(i)}>
-              <span style={{ opacity: 0.55, fontSize: 11 }}>{depth > 0 ? '└' : '■'}</span>
-              <span style={{ flex: 1 }}>{b.arg}</span>
-              {getParam(b, 'Scorer') && <span title="scorer" style={{ fontSize: 10, background: '#e8f6ec', color: '#1d7a3c', borderRadius: 4, padding: '0 4px' }}>S</span>}
-              <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} onClick={(e) => { e.stopPropagation(); removeBlock(i) }}>✕</button>
-            </div>
-          ))}
-          {others.map(({ b, i }) => (
-            <div key={i} style={S.row(i === selIdx)} onClick={() => setSelIdx(i)}>
-              <span style={{ opacity: 0.55, fontSize: 11 }}>{b.type === 'Solid' ? '◇' : '⬡'}</span>
-              <span style={{ flex: 1 }}>{b.type === 'Solid' ? `${b.arg}` : `${b.type} ${b.arg}`.trim()}</span>
-              <span style={{ fontSize: 10, opacity: 0.5 }}>{b.type === 'Solid' ? getParam(b, 'Type') : '검출기'}</span>
-              <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} onClick={(e) => { e.stopPropagation(); removeBlock(i) }}>✕</button>
-            </div>
-          ))}
-          {docName && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <select style={{ flex: 1, fontSize: 12, padding: 3, borderRadius: 6, border: '1px solid var(--border-default,#ccc)' }} value={addSel} onChange={(e) => setAddSel(e.target.value)}>
-                <option value="Volume">Volume (스크립트 볼륨)</option>
-                <option value="Solid">Solid (재사용/Boolean)</option>
-                <optgroup label="정의된 검출기 (카탈로그)">
-                  {catalogTypes.map((k) => <option key={k} value={k}>{k}</option>)}
-                </optgroup>
-              </select>
-              <button style={S.btn} onClick={addBlock}>추가</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── center: preview + actions + report ── */}
-      <div style={S.col}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
-          <button style={S.btnP} disabled={!docName || busy} onClick={saveDoc}>{dirty ? '저장 *' : '저장'}</button>
-          <button style={{ ...S.btnP, background: '#2a7d46' }} disabled={!blocks.length || !!busy} onClick={validate}>
-            {busy === 'validate' ? 'Geant4 실행 중…' : 'Geant4 검증'}
-          </button>
-          {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브 미리보기로</button>}
-          <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮길 수 있습니다 (POS 자동 반영)"
-            style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
-            onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
-          {editMode && (
-            <span style={{ display: 'inline-flex', gap: 2 }}>
-              {[['translate', '이동'], ['rotate', '회전']].map(([m, label]) => (
-                <button key={m} style={{ ...S.btn, padding: '3px 9px',
-                  background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
-                  color: gizmoMode === m ? '#fff' : 'inherit' }}
-                  onClick={() => setGizmoMode(m)}>{label}</button>
-              ))}
-            </span>
-          )}
-          <span style={{ fontSize: 12, opacity: 0.7 }}>
-            {editMode ? `편집 모드 — 클릭=선택, 드래그=${gizmoMode === 'rotate' ? '회전 (RotateXYZ 반영)' : '이동 (POS 반영)'}` :
-              validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)'}
-          </span>
-          {err && <span style={{ color: '#dc2626', fontSize: 12, fontWeight: 600 }}>{err}</span>}
-        </div>
-        <div style={{ flex: 1, minHeight: 0, border: '1px solid var(--border-default,#ddd)', borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
-          {/* Canvas must not initialize inside the hidden (display:none) tab */}
-          {active && (
-            <Suspense fallback={<div style={{ padding: 20, fontSize: 13, opacity: 0.6 }}>3D 뷰어 로딩…</div>}>
-              <Viewer geometry={scene} event={EMPTY_EVENT} styles={viewStyles} hidden={NO_HIDDEN}
-                show={{ tracks: false, edep: false, axes: true, pointSize: 0.5 }}
-                controlsRef={controlsRef} onPick={pickHandler} transform={transformSpec} />
-            </Suspense>
-          )}
-        </div>
-        {report && (
-          <div style={{ ...S.box, flex: '0 0 auto', maxHeight: 170, borderLeft: `5px solid ${report.ok ? '#2a7d46' : '#dc2626'}` }}>
-            <b style={{ fontSize: 13, color: report.ok ? '#2a7d46' : '#dc2626' }}>
-              {report.ok ? '✓ 지오메트리 정상 (겹침 없음)' : '문제 발견'}
-            </b>
-            {report.errors.map((e, i) => <div key={'e' + i} style={{ fontSize: 12, color: '#dc2626', fontFamily: 'monospace' }}>{e}</div>)}
-            {report.overlaps.slice(0, 12).map((o, i) => <div key={'o' + i} style={{ fontSize: 12, color: '#b45309', fontFamily: 'monospace' }}>{o}</div>)}
-            {!!report.overlaps.length && <div style={{ fontSize: 11, opacity: 0.6 }}>겹침 관련 {report.overlaps.length}줄</div>}
-          </div>
+    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+      {/* ── full-bleed 3D preview (canvas must not init inside the hidden tab) ── */}
+      <div style={{ position: 'absolute', inset: 0 }}>
+        {active && (
+          <Suspense fallback={<div style={{ padding: 20, fontSize: 13, opacity: 0.6 }}>3D 뷰어 로딩…</div>}>
+            <Viewer geometry={scene} event={EMPTY_EVENT} styles={viewStyles} hidden={NO_HIDDEN}
+              show={{ tracks: false, edep: false, axes: true, pointSize: 0.5 }}
+              controlsRef={controlsRef} onPick={pickHandler} transform={transformSpec} />
+          </Suspense>
         )}
       </div>
 
-      {/* ── right: block form + help ── */}
-      <div style={S.col}>
-        <div style={{ ...S.box, flex: 1 }}>
-          {!sel && <div style={{ fontSize: 13, opacity: 0.6 }}>블록을 선택하거나 추가하세요.<br /><br />
-            · <b>Volume</b>: solid + material + 배치 (mother/daughter)<br />
-            · <b>Solid</b>: 이름 붙은 형상 — Boolean(A−B 등)과 재사용<br />
-            · <b>정의된 검출기</b>: STARK 등 카탈로그 검출기 블록</div>}
-          {sel && (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <b style={{ fontSize: 14 }}>{sel.type}</b>
-                {(sel.type === 'Volume' || sel.type === 'Solid') && (
-                  <input style={{ flex: 1, padding: '4px 8px', fontSize: 13, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
-                    value={sel.arg} onChange={(e) => { const nb = blocks.map((b, i) => i === selIdx ? { ...b, arg: e.target.value.replace(/\s+/g, '_') } : b); touch(nb) }} />
-                )}
-              </div>
-              {schema?.description && <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10, lineHeight: 1.45 }}>{schema.description}</div>}
-              {schema && Object.entries(schema.fields)
-                .sort(([, a], [, b]) => (a.optional === false ? 0 : 1) - (b.optional === false ? 0 : 1))
-                .map(([name, spec]) => (
-                  <Field key={name} name={name} spec={spec} value={getParam(sel, name)}
-                    onChange={(v) => setField(name, v)} materials={materials}
-                    onHelp={(n, s) => setHelp({ name: n, text: s.description || '(설명 없음)' })} />
-                ))}
-              {!schema && <div style={{ fontSize: 12, color: '#b45309' }}>카탈로그에 스키마가 없는 블록입니다 — 텍스트로만 편집됩니다.</div>}
-              {!schema && sel.params.map((p, k) => (
-                <Field key={k} name={p.key} spec={{}} value={p.value} onChange={(v) => setField(p.key, v)} materials={materials} onHelp={() => {}} />
+      {/* ── floating action bar (top-right) ── */}
+      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 3, display: 'flex', gap: 6, alignItems: 'center',
+        padding: '7px 9px', borderRadius: 12, border: '1px solid rgba(var(--glass-rgb,255,255,255),0.6)',
+        background: 'rgba(var(--glass-rgb,255,255,255),0.45)', backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)', boxShadow: 'var(--shadow)' }}>
+        <button style={S.btnP} disabled={!docName || !!busy} onClick={saveDoc}>{dirty ? '저장 *' : '저장'}</button>
+        <button style={{ ...S.btnP, background: '#2a7d46' }} disabled={!blocks.length || !!busy} onClick={validate}>
+          {busy === 'validate' ? 'Geant4 실행 중…' : 'Geant4 검증'}
+        </button>
+        {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브로</button>}
+        <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮기거나 돌릴 수 있습니다 (POS/RotateXYZ 자동 반영)"
+          style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
+          onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
+        {editMode && [['translate', '이동'], ['rotate', '회전']].map(([m, label]) => (
+          <button key={m} style={{ ...S.btn, padding: '3px 9px',
+            background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
+            color: gizmoMode === m ? '#fff' : 'inherit' }}
+            onClick={() => setGizmoMode(m)}>{label}</button>
+        ))}
+      </div>
+      {/* status hint under the action bar */}
+      <div style={{ position: 'absolute', top: 56, right: 12, zIndex: 3, fontSize: 11.5,
+        padding: '3px 9px', borderRadius: 8, background: 'rgba(var(--glass-rgb,255,255,255),0.55)',
+        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', color: err ? '#dc2626' : 'inherit',
+        fontWeight: err ? 600 : 400, opacity: 0.9 }}>
+        {err || (editMode ? `편집 모드 — 클릭=선택, 드래그=${gizmoMode === 'rotate' ? '회전 (RotateXYZ 반영)' : '이동 (POS 반영)'}`
+          : validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)')}
+      </div>
+
+      {/* ── left icon rail: click to open/close the dock panels ── */}
+      <div className="simrail">
+        {PANELS.map(({ key, label, Icon }) => (
+          <button key={key} title={label} className={`railbtn ${open[key] ? 'on' : ''}`} onClick={() => togglePanel(key)}>
+            <Icon size={20} weight={open[key] ? 'fill' : 'regular'} /><span>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ── open panels, attached to the left in rail order ── */}
+      {openPanels.map(({ key, label }, idx) => (
+        <div key={key} className="simpanel" style={{ left: 86 + idx * 296, width: 284 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '9px 12px 7px', borderBottom: '1px solid var(--line, #e2e2e8)', flex: '0 0 auto' }}>
+            <b style={{ fontSize: 13 }}>
+              {key === 'blocks' && docName ? <>블록 <span style={{ fontWeight: 400, opacity: 0.65 }}>— {docName}{dirty ? ' *' : ''}</span></> : label}
+            </b>
+            <button style={{ ...S.btn, padding: '0 7px', border: 'none', background: 'transparent', fontSize: 13 }}
+              onClick={() => togglePanel(key)}>✕</button>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
+
+            {key === 'docs' && (<>
+              <button style={{ ...S.btn, width: '100%', marginBottom: 6 }} onClick={() => setNewName(newName === null ? '' : null)}>+ 새로</button>
+              {newName !== null && (
+                <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
+                  <input autoFocus style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
+                    placeholder="이름 (영문/숫자/_/-)" value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') newDoc(); if (e.key === 'Escape') setNewName(null) }} />
+                  <button style={S.btnP} onClick={newDoc}>생성</button>
+                </div>
+              )}
+              {docs.map((d) => (
+                <div key={d.name} style={S.row(d.name === docName)} onClick={() => openDoc(d.name)}>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</span>
+                  <span style={{ fontSize: 11, opacity: 0.6 }}>{d.volumes}V {d.solids}S</span>
+                  <button title={d.applied ? 'detector.txt에서 제거' : 'detector.txt에 적용'} style={{ ...S.btn, padding: '1px 7px', background: d.applied ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: d.applied ? '#fff' : 'inherit' }}
+                    onClick={(e) => { e.stopPropagation(); applyDoc(d.name, d.applied) }}>{d.applied ? '적용됨' : '적용'}</button>
+                  {pendingDel === d.name
+                    ? <button style={{ ...S.btn, padding: '1px 7px', color: '#dc2626', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); removeDoc(d.name); setPendingDel('') }}>확인</button>
+                    : <button style={{ ...S.btn, padding: '1px 7px' }} onClick={(e) => { e.stopPropagation(); setPendingDel(d.name); setTimeout(() => setPendingDel(''), 2500) }}>✕</button>}
+                </div>
               ))}
-            </>
+              {!docs.length && <div style={{ fontSize: 12, opacity: 0.6 }}>아직 없음 — "새로"로 시작</div>}
+            </>)}
+
+            {key === 'blocks' && (<>
+              {tree.map(({ b, i, depth }) => (
+                <div key={i} style={{ ...S.row(i === selIdx), paddingLeft: 7 + depth * 14 }} onClick={() => selectBlock(i)}>
+                  <span style={{ opacity: 0.55, fontSize: 11 }}>{depth > 0 ? '└' : '■'}</span>
+                  <span style={{ flex: 1 }}>{b.arg}</span>
+                  {getParam(b, 'Scorer') && <span title="scorer" style={{ fontSize: 10, background: '#e8f6ec', color: '#1d7a3c', borderRadius: 4, padding: '0 4px' }}>S</span>}
+                  <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} onClick={(e) => { e.stopPropagation(); removeBlock(i) }}>✕</button>
+                </div>
+              ))}
+              {others.map(({ b, i }) => (
+                <div key={i} style={S.row(i === selIdx)} onClick={() => selectBlock(i)}>
+                  <span style={{ opacity: 0.55, fontSize: 11 }}>{b.type === 'Solid' ? '◇' : '⬡'}</span>
+                  <span style={{ flex: 1 }}>{b.type === 'Solid' ? `${b.arg}` : `${b.type} ${b.arg}`.trim()}</span>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>{b.type === 'Solid' ? getParam(b, 'Type') : '검출기'}</span>
+                  <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} onClick={(e) => { e.stopPropagation(); removeBlock(i) }}>✕</button>
+                </div>
+              ))}
+              {docName && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <select style={{ flex: 1, minWidth: 0, fontSize: 12, padding: 3, borderRadius: 6, border: '1px solid var(--border-default,#ccc)' }} value={addSel} onChange={(e) => setAddSel(e.target.value)}>
+                    <option value="Volume">Volume (스크립트 볼륨)</option>
+                    <option value="Solid">Solid (재사용/Boolean)</option>
+                    <optgroup label="정의된 검출기 (카탈로그)">
+                      {catalogTypes.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </optgroup>
+                  </select>
+                  <button style={S.btn} onClick={addBlock}>추가</button>
+                </div>
+              )}
+              {!docName && <div style={{ fontSize: 12, opacity: 0.6 }}>지오메트리를 먼저 선택하세요.</div>}
+            </>)}
+
+            {key === 'props' && (<>
+              {!sel && <div style={{ fontSize: 13, opacity: 0.6 }}>블록을 선택하거나 추가하세요.<br /><br />
+                · <b>Volume</b>: solid + material + 배치 (mother/daughter)<br />
+                · <b>Solid</b>: 이름 붙은 형상 — Boolean(A−B 등)과 재사용<br />
+                · <b>정의된 검출기</b>: STARK 등 카탈로그 검출기 블록</div>}
+              {sel && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <b style={{ fontSize: 14 }}>{sel.type}</b>
+                    {(sel.type === 'Volume' || sel.type === 'Solid') && (
+                      <input style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 13, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
+                        value={sel.arg} onChange={(e) => { const nb = blocks.map((b, i) => i === selIdx ? { ...b, arg: e.target.value.replace(/\s+/g, '_') } : b); touch(nb) }} />
+                    )}
+                  </div>
+                  {schema?.description && <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10, lineHeight: 1.45 }}>{schema.description}</div>}
+                  {schema && Object.entries(schema.fields)
+                    .sort(([, a], [, b]) => (a.optional === false ? 0 : 1) - (b.optional === false ? 0 : 1))
+                    .map(([name, spec]) => (
+                      <Field key={name} name={name} spec={spec} value={getParam(sel, name)}
+                        onChange={(v) => setField(name, v)} materials={materials}
+                        onHelp={(n, s) => setHelp({ name: n, text: s.description || '(설명 없음)' })} />
+                    ))}
+                  {!schema && <div style={{ fontSize: 12, color: '#b45309' }}>카탈로그에 스키마가 없는 블록입니다 — 텍스트로만 편집됩니다.</div>}
+                  {!schema && sel.params.map((p, k) => (
+                    <Field key={k} name={p.key} spec={{}} value={p.value} onChange={(v) => setField(p.key, v)} materials={materials} onHelp={() => {}} />
+                  ))}
+                </>
+              )}
+            </>)}
+          </div>
+
+          {key === 'props' && (
+            <div style={{ flex: '0 0 auto', padding: '8px 12px', borderTop: '1px solid var(--line, #e2e2e8)', minHeight: 64,
+              background: 'rgba(var(--glass-rgb,255,255,255),0.35)' }}>
+              <b style={{ fontSize: 12, opacity: 0.75 }}>{help ? help.name : '필드 설명'}</b>
+              <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 3 }}>
+                {help ? help.text : '필드에 마우스를 올리거나 포커스하면 자세한 설명이 여기 표시됩니다.'}
+              </div>
+            </div>
           )}
         </div>
-        <div style={{ ...S.box, flex: '0 0 auto', minHeight: 84, background: 'var(--surface-sunken,#f6f7fb)' }}>
-          <b style={{ fontSize: 12, opacity: 0.75 }}>{help ? help.name : '필드 설명'}</b>
-          <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 3 }}>
-            {help ? help.text : '필드에 마우스를 올리거나 포커스하면 자세한 설명이 여기 표시됩니다.'}
-          </div>
+      ))}
+
+      {/* ── validation report — floating bottom-right ── */}
+      {report && (
+        <div style={{ position: 'absolute', right: 12, bottom: 12, zIndex: 3, maxWidth: 520, maxHeight: 180, overflow: 'auto',
+          ...S.box, borderLeft: `5px solid ${report.ok ? '#2a7d46' : '#dc2626'}`,
+          background: 'rgba(var(--glass-rgb,255,255,255),0.7)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
+          <b style={{ fontSize: 13, color: report.ok ? '#2a7d46' : '#dc2626' }}>
+            {report.ok ? '✓ 지오메트리 정상 (겹침 없음)' : '문제 발견'}
+          </b>
+          {report.errors.map((e, i) => <div key={'e' + i} style={{ fontSize: 12, color: '#dc2626', fontFamily: 'monospace' }}>{e}</div>)}
+          {report.overlaps.slice(0, 12).map((o, i) => <div key={'o' + i} style={{ fontSize: 12, color: '#b45309', fontFamily: 'monospace' }}>{o}</div>)}
+          {!!report.overlaps.length && <div style={{ fontSize: 11, opacity: 0.6 }}>겹침 관련 {report.overlaps.length}줄</div>}
         </div>
-      </div>
+      )}
     </div>
   )
 }
