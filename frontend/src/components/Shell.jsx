@@ -259,7 +259,7 @@ export default function Shell() {
     files: <FilesTab active={tab === 'files'} />,
     community: <Community role={me.role} onOpenFiles={() => setTab('files')} active={tab === 'community'}
       menuConfig={(layout.tabs || []).find((x) => x.id === 'community')?.codeMenu} />,
-    set: <SettingsPage />,
+    set: <SettingsPage menuConfig={(layout.tabs || []).find((x) => x.id === 'set')?.codeMenu} />,
   }
 
   return (

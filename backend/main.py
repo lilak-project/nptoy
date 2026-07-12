@@ -476,7 +476,13 @@ _LAYOUT_DEFAULT = {"tabs": [
         {"id": "plaza", "label": "광장", "icon": "beer-stein"},
         {"id": "broadcast", "label": "방송", "icon": "megaphone"},
     ]},
-    {"id": "set", "icon": "settings"},
+    {"id": "set", "icon": "settings", "codeMenu": [
+        {"id": "account", "label": "계정", "icon": "user"},
+        {"id": "users", "label": "사용자 관리", "icon": "users"},
+        {"id": "limits", "label": "사용자 한도", "icon": "gauge"},
+        {"id": "tabs", "label": "탭", "icon": "browse"},
+        {"id": "profiles", "label": "프로필 유형", "icon": "user"},
+    ]},
 ]}
 app.include_router(build_layout_router(
     path=config.DATA_ROOT / "layout.json",
