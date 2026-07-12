@@ -467,7 +467,15 @@ _LAYOUT_DEFAULT = {"tabs": [
     {"id": "geometry", "icon": "shapes"},
     {"id": "simulation", "icon": "spinner"},
     {"id": "files", "icon": "folder"},
-    {"id": "community", "icon": "community"},
+    {"id": "community", "icon": "community", "codeMenu": [
+        {"id": "poll", "label": "투표", "icon": "chart"},
+        {"id": "questions", "label": "질문", "icon": "question-mark"},
+        {"id": "completed", "label": "완료", "icon": "check"},
+        {"id": "files", "label": "첨부", "icon": "attach"},
+        {"id": "manage", "label": "관리", "icon": "gear"},
+        {"id": "plaza", "label": "광장", "icon": "beer-stein"},
+        {"id": "broadcast", "label": "방송", "icon": "megaphone"},
+    ]},
     {"id": "set", "icon": "settings"},
 ]}
 app.include_router(build_layout_router(

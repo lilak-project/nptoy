@@ -257,7 +257,8 @@ export default function Shell() {
     geometry: <GeometryTab active={tab === 'geometry'} />,
     simulation: <SimulationTab />,
     files: <FilesTab active={tab === 'files'} />,
-    community: <Community role={me.role} onOpenFiles={() => setTab('files')} active={tab === 'community'} />,
+    community: <Community role={me.role} onOpenFiles={() => setTab('files')} active={tab === 'community'}
+      menuConfig={(layout.tabs || []).find((x) => x.id === 'community')?.codeMenu} />,
     set: <SettingsPage />,
   }
 

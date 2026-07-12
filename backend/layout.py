@@ -44,17 +44,47 @@ def _atomic_write(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _merge_code_menu(stored_menu, default_menu) -> list:
+    """A CODE-owned menu (e.g. the built-in community dock): the canonical items —
+    ids, labels, icons — always come from `default_menu` (the code), but the user's
+    stored ORDER and HIDDEN flags win. Stored entries for ids the code dropped are
+    discarded; items the code added appear at the end. So a manager can reorder/hide
+    the dock, but can't add/remove/rename its (feature-backed) entries."""
+    d_items = [i for i in (default_menu or []) if isinstance(i, dict) and i.get("id")]
+    d_by_id = {i["id"]: i for i in d_items}
+    out, seen = [], set()
+    for si in (stored_menu or []):
+        sid = si.get("id") if isinstance(si, dict) else None
+        if sid in d_by_id and sid not in seen:
+            out.append({**d_by_id[sid], "hidden": bool(si.get("hidden"))})
+            seen.add(sid)
+    for di in d_items:
+        if di["id"] not in seen:
+            out.append({**di})
+    return out
+
+
 def _reconcile(stored: Optional[dict], defaults: dict) -> dict:
     """Effective config = the stored tabs (user's arrangement wins), plus any default
     tab whose id isn't stored yet — so a tab newly added in code appears rather than
-    being hidden forever by a stale saved layout."""
+    being hidden forever by a stale saved layout. Each tab's `codeMenu` (a code-owned
+    dock like community's) is refreshed from the defaults, keeping the stored order +
+    hidden."""
+    d_tabs = [t for t in (defaults or {}).get("tabs", []) if isinstance(t, dict)]
+    d_by_id = {t["id"]: t for t in d_tabs if t.get("id")}
     if not stored or not isinstance(stored.get("tabs"), list):
         return defaults
-    d_tabs = [t for t in (defaults or {}).get("tabs", []) if isinstance(t, dict)]
     s_tabs = [t for t in stored["tabs"] if isinstance(t, dict) and t.get("id")]
+    merged = []
+    for st in s_tabs:
+        d = d_by_id.get(st["id"])
+        if d and isinstance(d.get("codeMenu"), list):
+            merged.append({**st, "codeMenu": _merge_code_menu(st.get("codeMenu"), d["codeMenu"])})
+        else:
+            merged.append(st)
     have = {t["id"] for t in s_tabs}
     appended = [t for t in d_tabs if t.get("id") not in have]
-    return {**stored, "tabs": s_tabs + appended}
+    return {**stored, "tabs": merged + appended}
 
 
 def _is_manager(user: dict) -> bool:
