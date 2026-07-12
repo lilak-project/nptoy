@@ -112,6 +112,47 @@ def write_material_file(user_key: str, content: str) -> None:
     (ws / "materials.txt").write_text(content)
 
 
+# ── STL meshes (CAD import for Solid Type= STL) ────────────────────────────────
+# Stored flat in the workspace inputs/ dir, so `File= <name>.stl` resolves from
+# npsimulation's working directory. Kept deliberately small-scale: sanitized
+# names, .stl only, per-file size cap.
+STL_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _stl_name(name: str) -> str:
+    name = (name or "").strip().replace(" ", "_")
+    base = re.sub(r"[^A-Za-z0-9_.\-]", "_", Path(name).name)
+    if not base.lower().endswith(".stl"):
+        raise ValueError("only .stl files are supported")
+    if base in (".stl", ""):
+        raise ValueError("invalid file name")
+    return base
+
+
+def list_stl(user_key: str) -> list[dict]:
+    ws = inputs.root(user_key)
+    return [{"name": p.name, "size": p.stat().st_size}
+            for p in sorted(ws.glob("*.stl"))] if ws.is_dir() else []
+
+
+def save_stl(user_key: str, filename: str, data: bytes) -> str:
+    if len(data) > STL_MAX_BYTES:
+        raise ValueError(f"STL too large (max {STL_MAX_BYTES // (1024 * 1024)} MB)")
+    if not data:
+        raise ValueError("empty file")
+    name = _stl_name(filename)
+    ws = inputs.root(user_key)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / name).write_bytes(data)
+    return name
+
+
+def delete_stl(user_key: str, name: str) -> None:
+    p = inputs.root(user_key) / _stl_name(name)
+    if p.exists():
+        p.unlink()
+
+
 # ── geometry documents ─────────────────────────────────────────────────────────
 def _docs_dir(user_key: str) -> Path:
     d = config.USERS_ROOT / user_key / "geometries"
@@ -254,10 +295,14 @@ def validate(user_key: str, content: str) -> dict:
     work.mkdir(parents=True)
     (work / "check.detector").write_text(content)
     (work / "check.reaction").write_text(_VALIDATE_REACTION)
-    # user materials must resolve during validation too
-    ws_mat = inputs.root(user_key) / "materials.txt"
+    # user materials and STL meshes must resolve during validation too
+    ws = inputs.root(user_key)
+    ws_mat = ws / "materials.txt"
     if ws_mat.exists():
         shutil.copy(ws_mat, work / "materials.txt")
+    if ws.is_dir():
+        for stl in ws.glob("*.stl"):
+            shutil.copy(stl, work / stl.name)
     geom_path = work / "check.geom.json"
     (work / "check.mac").write_text(f"/det/export_geometry {geom_path}\n")
 

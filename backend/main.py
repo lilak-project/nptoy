@@ -519,6 +519,29 @@ def geometry_materials_file_put(body: MatFile, user: PortalUser = Depends(requir
     return {"ok": True}
 
 
+@app.get("/api/geometry/stl")
+def geometry_stl_list(user: PortalUser = Depends(require_user)) -> dict:
+    return {"files": geomlib.list_stl(user.user_key)}
+
+
+@app.post("/api/geometry/stl")
+async def geometry_stl_upload(file: UploadFile = File(...), user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        name = geomlib.save_stl(user.user_key, file.filename, await file.read())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "name": name}
+
+
+@app.delete("/api/geometry/stl")
+def geometry_stl_delete(name: str, user: PortalUser = Depends(require_user)) -> dict:
+    try:
+        geomlib.delete_stl(user.user_key, name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
 @app.get("/api/geometry/docs")
 def geometry_docs(user: PortalUser = Depends(require_user)) -> dict:
     return {"docs": geomlib.list_docs(user.user_key)}

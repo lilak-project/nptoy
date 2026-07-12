@@ -51,6 +51,22 @@ export const geomCatalog = () => req('api/geometry/catalog')
 export const geomMaterials = () => req('api/geometry/materials')
 export const geomMatFileGet = () => req('api/geometry/materials/file')
 export const geomMatFilePut = (content) => req('api/geometry/materials/file', 'PUT', { content })
+export const geomStlList = () => req('api/geometry/stl')
+export const geomStlDelete = (name) => req(`api/geometry/stl?name=${encodeURIComponent(name)}`, 'DELETE')
+export async function geomStlUpload(file) {  // multipart — bypasses the JSON helper
+  const fd = new FormData()
+  fd.append('file', file)
+  const headers = {}
+  const t = token()
+  if (t) headers['Authorization'] = `Bearer ${t}`
+  const res = await fetch('api/geometry/stl', { method: 'POST', headers, body: fd })
+  if (!res.ok) {
+    let detail = `${res.status}`
+    try { detail = (await res.json()).detail || detail } catch {}
+    throw new Error(detail)
+  }
+  return res.json()
+}
 export const geomDocs = () => req('api/geometry/docs')
 export const geomDocGet = (name) => req(`api/geometry/doc?name=${encodeURIComponent(name)}`)
 export const geomDocPut = (name, content) => req('api/geometry/doc', 'PUT', { name, content })

@@ -17,6 +17,7 @@ import { Stack, TreeStructure, SlidersHorizontal, Flask } from '@phosphor-icons/
 import {
   geomCatalog, geomMaterials, geomDocs, geomDocGet, geomDocPut, geomDocDelete,
   geomDocRename, geomApply, geomRemove, geomValidate, geomMatFileGet, geomMatFilePut,
+  geomStlList, geomStlUpload,
 } from './api.js'
 import { parseDetector, serializeDetector, getParam, setParam } from './detector.js'
 
@@ -177,7 +178,7 @@ function buildLive(blocks) {
 }
 
 // ── form field ────────────────────────────────────────────────────────────────
-function Field({ name, spec, value, onChange, onHelp, materials }) {
+function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadStl }) {
   const label = (
     <label title={spec.description || ''} onMouseEnter={() => onHelp(name, spec)} onFocus={() => onHelp(name, spec)}
       style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 2, cursor: 'help',
@@ -202,6 +203,25 @@ function Field({ name, spec, value, onChange, onHelp, materials }) {
           onChange={(e) => onChange(e.target.value)} placeholder="Al, NaI, MyGas…" />
         <datalist id="geom-materials">{materials.map((m) => <option key={m.name} value={m.name} />)}</datalist>
       </>
+    )
+  } else if (name === 'File' && stl) {
+    // STL mesh picker: workspace files + direct upload
+    const names = stl.map((f) => f.name)
+    input = (
+      <div style={{ display: 'flex', gap: 5 }}>
+        <select style={{ ...base, flex: 1, minWidth: 0 }} value={value} onFocus={() => onHelp(name, spec)}
+          onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {value && !names.includes(value) && <option value={value}>{value}</option>}
+          {names.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <label title="STL 파일 업로드 (바이너리/ASCII)" style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--border-default,#ccc)',
+          borderRadius: 6, background: 'var(--surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          업로드
+          <input type="file" accept=".stl" style={{ display: 'none' }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadStl(f); e.target.value = '' }} />
+        </label>
+      </div>
     )
   } else {
     input = <input style={base} value={value} onFocus={() => onHelp(name, spec)}
@@ -415,6 +435,14 @@ export default function GeometryTab({ active = true }) {
     setMatText(content)
     geomMaterials().then((d) => setMaterials(d.materials)).catch(() => {})
   }
+  const [stlFiles, setStlFiles] = useState([])  // workspace *.stl for Solid File=
+  const uploadStl = async (file) => {
+    try {
+      const r = await geomStlUpload(file)
+      setStlFiles((await geomStlList()).files)
+      setField('File', r.name)               // point the edited block at it
+    } catch (e) { setErr(String(e.message || e)) }
+  }
   const togglePanel = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
   const openPanels = PANELS.filter((p) => open[p.key])
   // selecting a block opens the property panel (still closable by hand)
@@ -425,6 +453,7 @@ export default function GeometryTab({ active = true }) {
     geomCatalog().then(setCatalog).catch((e) => setErr(String(e.message || e)))
     geomMaterials().then((d) => setMaterials(d.materials)).catch(() => {})
     geomMatFileGet().then((d) => setMatText(d.content)).catch(() => {})
+    geomStlList().then((d) => setStlFiles(d.files)).catch(() => {})
     refreshDocs().catch((e) => setErr(String(e.message || e)))
   }, [])
 
@@ -739,11 +768,13 @@ export default function GeometryTab({ active = true }) {
                     .map(([name, spec]) => (
                       <Field key={name} name={name} spec={spec} value={getParam(sel, name)}
                         onChange={(v) => setField(name, v)} materials={materials}
+                        stl={stlFiles} onUploadStl={uploadStl}
                         onHelp={(n, s) => setHelp({ name: n, text: s.description || '(설명 없음)' })} />
                     ))}
                   {!schema && <div style={{ fontSize: 12, color: '#b45309' }}>카탈로그에 스키마가 없는 블록입니다 — 텍스트로만 편집됩니다.</div>}
                   {!schema && sel.params.map((p, k) => (
-                    <Field key={k} name={p.key} spec={{}} value={p.value} onChange={(v) => setField(p.key, v)} materials={materials} onHelp={() => {}} />
+                    <Field key={k} name={p.key} spec={{}} value={p.value} onChange={(v) => setField(p.key, v)} materials={materials}
+                      stl={stlFiles} onUploadStl={uploadStl} onHelp={() => {}} />
                   ))}
                 </>
               )}
