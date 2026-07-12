@@ -1,17 +1,39 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   DETECTOR_BLOCKS, parseDetector, serializeDetector, fieldSpec, newBlock,
   detectCombo, switchCombo, detectVariant, switchVariant, getParam,
+  specFromCatalog, newBlockFromSpec,
 } from './detector.js'
 import { Field } from './formfields.jsx'
+import { geomCatalog } from './api.js'
 
 const ADDABLE = ['Target', 'ATOMX', 'STARK', 'CSSU', 'Coaxial_Germanium', 'Plunger', 'ASGARD']
 const defaultFor = (f) => f.default ?? (f.type === 'num'
   ? Array(f.n).fill('0').join(' ') + (f.unit ? ' ' + f.unit : '')
   : f.type === 'choice' ? f.choices[0] : '')
 
+// detectors.json fetched once per page (the generated per-detector schema —
+// hand-tuned DETECTOR_BLOCKS entries stay authoritative, the catalog covers
+// every other simulatable detector with typed fields + descriptions).
+let _catalogPromise = null
+const loadCatalog = () => (_catalogPromise ||= geomCatalog().catch(() => null))
+
 export default function DetectorForm({ initialText, onChange }) {
   const [blocks, setBlocks] = useState(() => parseDetector(initialText))
+  const [catalog, setCatalog] = useState(null)
+  useEffect(() => { loadCatalog().then(setCatalog) }, [])
+  // token → converted spec for every simulatable catalog detector that has no
+  // hand-tuned entry (Volume/Solid belong to the Geometry tab's editor)
+  const catalogSpecs = useMemo(() => {
+    const out = {}
+    for (const [token, entry] of Object.entries(catalog?.detectors || {})) {
+      if (!entry.simulation || DETECTOR_BLOCKS[token] || token === 'Volume' || token === 'Solid') continue
+      out[token] = specFromCatalog(token, entry)
+    }
+    return out
+  }, [catalog])
+  const specFor = (type) => DETECTOR_BLOCKS[type] || catalogSpecs[type]
+  const fieldOf = (type, key) => fieldSpec(type, key) || catalogSpecs[type]?.fields.find((f) => f.key === key)
   const [confirmClear, setConfirmClear] = useState(false)
   const [collapsed, setCollapsed] = useState(() => new Set())         // collapsed block indices
   const [groupCollapsed, setGroupCollapsed] = useState(() => new Set())  // collapsed detector types
@@ -34,7 +56,7 @@ export default function DetectorForm({ initialText, onChange }) {
   })
   const removeField = (bi, key) => mutate(bi, (nb) => { nb.params = nb.params.filter((p) => p.key !== key) })
   const addField = (bi, key) =>
-    mutate(bi, (nb) => nb.params.push({ key, value: fieldSpec(blocks[bi].type, key) ? defaultFor(fieldSpec(blocks[bi].type, key)) : '' }))
+    mutate(bi, (nb) => { const f = fieldOf(blocks[bi].type, key); nb.params.push({ key, value: f ? defaultFor(f) : '' }) })
   const applyPreset = (bi, set) => mutate(bi, (nb) =>
     Object.entries(set).forEach(([k, v]) => {
       const p = nb.params.find((x) => x.key === k); if (p) p.value = v; else nb.params.push({ key: k, value: v })
@@ -42,7 +64,8 @@ export default function DetectorForm({ initialText, onChange }) {
   const setCombo = (bi, combo) => mutate(bi, (nb) => { nb.params = switchCombo(blocks[bi].type, nb, combo) })
   const setVariant = (bi, variant) => mutate(bi, (nb) => { nb.params = switchVariant(blocks[bi].type, nb, variant) })
   const setArg = (bi, arg) => commit(blocks.map((b, i) => (i === bi ? { ...b, arg } : b)))
-  const addBlock = (type) => commit([...blocks, newBlock(type, { hasATOMX })])
+  const addBlock = (type) => commit([...blocks,
+    DETECTOR_BLOCKS[type] ? newBlock(type, { hasATOMX }) : newBlockFromSpec(type, catalogSpecs[type])])
   const removeBlock = (bi) => { setCollapsed(new Set()); commit(blocks.filter((_, i) => i !== bi)) }
   const clearAll = () => {                          // inline 2-step confirm
     if (!confirmClear) { setConfirmClear(true); return }
@@ -61,7 +84,7 @@ export default function DetectorForm({ initialText, onChange }) {
 
   // One detector box. `num` (1-based) is shown as a badge when the type repeats.
   const renderBlock = (b, bi, num) => {
-    const spec = DETECTOR_BLOCKS[b.type]
+    const spec = specFor(b.type)
     const presentKeys = new Set(b.params.map((p) => p.key))
     let addable = (spec?.fields || []).filter((f) => !presentKeys.has(f.key))
     // for a variant block (CSSU), only offer the current shape's params (+ X/Y/Z
@@ -116,10 +139,13 @@ export default function DetectorForm({ initialText, onChange }) {
           ))}
 
           <div className="dfields">
+            {spec?.fromCatalog && spec.description && (
+              <div className="dnote" style={{ padding: '2px 10px 6px', lineHeight: 1.45 }}>{spec.description}</div>
+            )}
             {b.params.map((p) => {
               // the variant key (CSSU Type) is driven by the header selector, not an inline field
               if (spec?.variants && p.key === spec.variantKey) return null
-              const f = fieldSpec(b.type, p.key) || { key: p.key, label: p.key, type: 'text' }
+              const f = fieldOf(b.type, p.key) || { key: p.key, label: p.key, type: 'text' }
               return <Field key={p.key} f={f} value={p.value}
                 onChange={(v) => setVal(bi, p.key, v)} onRemove={() => removeField(bi, p.key)} />
             })}
@@ -146,6 +172,14 @@ export default function DetectorForm({ initialText, onChange }) {
           <button key={t} className="reload" disabled={DETECTOR_BLOCKS[t].single && has(t)}
             onClick={() => addBlock(t)}>+ {t}</button>
         ))}
+        {Object.keys(catalogSpecs).length > 0 && (
+          <select value="" title="nptool의 모든 검출기 (detectors.json 카탈로그에서 자동 생성)"
+            style={{ fontSize: 12, maxWidth: 150 }}
+            onChange={(e) => { if (e.target.value) addBlock(e.target.value) }}>
+            <option value="" disabled>+ 전체 검출기…</option>
+            {Object.keys(catalogSpecs).sort().map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
         <button className="reload danger" onClick={clearAll} disabled={!blocks.length}
           onMouseLeave={() => setConfirmClear(false)}>{confirmClear ? '정말 지울까요?' : 'clear all'}</button>
       </div>

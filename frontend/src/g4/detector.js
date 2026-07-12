@@ -371,3 +371,36 @@ export function newBlock(type, opts = {}) {
   const params = spec.fields.filter((f) => f.core).map((f) => ({ key: f.key, value: fieldDefault(f) }))
   return { type, arg: spec.arg?.default || '', header: [`%% ${type}`], params }
 }
+
+// ── catalog bridge ─────────────────────────────────────────────────────────────
+// Build a DETECTOR_BLOCKS-style spec from a detectors.json entry (the schema the
+// nptool build extracts from every detector's ReadConfiguration). Hand-tuned
+// entries above stay authoritative; this makes the ~95 other detectors editable
+// with typed fields, units, choices and description tooltips — no hardcoding.
+export function specFromCatalog(token, entry) {
+  const req = new Set(entry.variants?.[0]?.requires || [])
+  const fields = Object.entries(entry.fields || {}).map(([key, f]) => {
+    const base = { key, label: key, comment: f.description || '', core: req.has(key) }
+    if (f.choices) return { ...base, type: 'choice', choices: f.choices }
+    if (f.type === 'vector3') return { ...base, type: 'num', n: 3, unit: f.unit || '' }
+    if (f.type === 'double') return { ...base, type: 'num', n: 1, unit: f.unit || '' }
+    if (f.type === 'int' || f.type === 'bool') return { ...base, type: 'num', n: 1, unit: '' }
+    if (key === 'Material' || key === 'TargetMaterial' || key === 'GasMaterial') return { ...base, type: 'material' }
+    return { ...base, type: 'text' }
+  })
+  fields.sort((a, b) => (req.has(b.key) ? 1 : 0) - (req.has(a.key) ? 1 : 0) || a.key.localeCompare(b.key))
+  return { label: token, fields, fromCatalog: true,
+    description: entry.description || '',
+    variantsInfo: (entry.variants || []).map((v) => v.requires),
+    requires: entry.variants?.[0]?.requires || [] }
+}
+
+// A fresh block for a catalog-only detector: the first variant's required
+// tokens, with typed defaults.
+export function newBlockFromSpec(type, spec) {
+  const params = (spec.requires || []).map((k) => {
+    const f = spec.fields.find((x) => x.key === k) || { type: 'text' }
+    return { key: k, value: fieldDefault(f) }
+  })
+  return { type, arg: '', header: [`%% ${type}`], params }
+}
