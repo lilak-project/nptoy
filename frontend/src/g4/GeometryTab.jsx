@@ -28,6 +28,10 @@ const Viewer = lazy(() => import('./Viewer.jsx'))
 const EMPTY_EVENT = { tracks: [], edep: [], meta: { n_events: 0, n_points: 0, energy_max: 0 } }
 const NO_HIDDEN = new Set() // Viewer calls hidden.has() unconditionally
 
+// every user-facing message goes through the shell's toast/notification channel
+const notify = (text, level = 'error') =>
+  window.dispatchEvent(new CustomEvent('nptoy-notify', { detail: { text: String(text), level } }))
+
 const DEG = Math.PI / 180
 
 // ── numeric helpers ────────────────────────────────────────────────────────────
@@ -179,7 +183,7 @@ function buildLive(blocks) {
 }
 
 // ── form field ────────────────────────────────────────────────────────────────
-function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadStl }) {
+function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadStl, onFindMaterial }) {
   const label = (
     <label title={spec.description || ''} onMouseEnter={() => onHelp(name, spec)} onFocus={() => onHelp(name, spec)}
       style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 2, cursor: 'help',
@@ -199,11 +203,16 @@ function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadSt
     )
   } else if (name === 'Material') {
     input = (
-      <>
-        <input style={base} list="geom-materials" value={value} onFocus={() => onHelp(name, spec)}
+      <div style={{ display: 'flex', gap: 5 }}>
+        <input style={{ ...base, flex: 1, minWidth: 0 }} list="geom-materials" value={value} onFocus={() => onHelp(name, spec)}
           onChange={(e) => onChange(e.target.value)} placeholder="Al, NaI, MyGas…" />
         <datalist id="geom-materials">{materials.map((m) => <option key={m.name} value={m.name} />)}</datalist>
-      </>
+        {onFindMaterial && (
+          <button title="재료 패널에서 골라서 채우기" onClick={onFindMaterial}
+            style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--border-default,#ccc)',
+              borderRadius: 6, background: 'var(--surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>찾기</button>
+        )}
+      </div>
     )
   } else if (name === 'File' && stl) {
     // STL mesh picker: workspace files + direct upload
@@ -267,24 +276,22 @@ function matBlockText(f) {
   return lines.join('\n')
 }
 
-function MaterialsPanel({ materials, matText, onSave, S }) {
+function MaterialsPanel({ materials, matText, onSave, S, pickMode, onPick }) {
   const [q, setQ] = useState('')
   const [form, setForm] = useState(null) // null = list only
-  const [msg, setMsg] = useState('')
   const wsNames = useMemo(() => new Set(parseDetector(matText).filter((b) => b.type === 'Material').map((b) => b.arg)), [matText])
   const list = materials.filter((m) => !q || m.name.toLowerCase().includes(q.toLowerCase())
     || (m.aliases || []).some((a) => a.toLowerCase().includes(q.toLowerCase())))
 
   const save = async () => {
-    setMsg('')
     const f = form
-    if (!/^[A-Za-z0-9_.\-]{1,48}$/.test(f.name.trim())) return setMsg('이름: 영문/숫자/_/-/. 1-48자')
+    if (!/^[A-Za-z0-9_.\-]{1,48}$/.test(f.name.trim())) return notify('이름: 영문/숫자/_/-/. 1-48자')
     const rows = f.rows.filter((r) => r.el.trim())
-    if (!rows.length) return setMsg('원소를 최소 1개 입력하세요')
-    if (!f.density.trim() && !(f.state === 'Gas' && f.mode === 'Counts')) return setMsg('밀도가 필요합니다 (가스+원자수 조합만 자동 계산)')
+    if (!rows.length) return notify('원소를 최소 1개 입력하세요')
+    if (!f.density.trim() && !(f.state === 'Gas' && f.mode === 'Counts')) return notify('밀도가 필요합니다 (가스+원자수 조합만 자동 계산)')
     if (f.mode === 'MassFractions') {
       const sum = rows.reduce((s, r) => s + (+r.v || 0), 0)
-      if (Math.abs(sum - 1) > 1e-3) return setMsg(`질량분율 합이 ${sum.toFixed(4)} — 1이 되어야 합니다`)
+      if (Math.abs(sum - 1) > 1e-3) return notify(`질량분율 합이 ${sum.toFixed(4)} — 1이 되어야 합니다`)
     }
     // replace-or-append the block in the workspace file
     const blocks = parseDetector(matText).filter((b) => !(b.type === 'Material' && b.arg === f.name.trim()))
@@ -351,7 +358,6 @@ function MaterialsPanel({ materials, matText, onSave, S }) {
       ))}
       <button style={{ ...S.btn, width: '100%', marginBottom: 8 }}
         onClick={() => setForm({ ...form, rows: [...form.rows, { el: '', v: '' }] })}>+ 원소</button>
-      {msg && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>{msg}</div>}
       <button style={{ ...S.btnP, width: '100%' }} onClick={save}>저장 → materials.txt</button>
       <div style={{ fontSize: 11, opacity: 0.65, marginTop: 6, lineHeight: 1.5 }}>
         저장하면 워크스페이스 materials.txt에 기록되어 시뮬레이션/검증에서 바로 쓸 수 있고,
@@ -369,11 +375,12 @@ function MaterialsPanel({ materials, matText, onSave, S }) {
       {list.map((m) => {
         const ws = m.origin === 'workspace'
         return (
-          <div key={m.name} style={S.row(false)} title={(m.aliases || []).join(' ')}>
+          <div key={m.name} style={S.row(false)} title={pickMode ? '클릭하면 이 재료가 필드에 선택됩니다' : (m.aliases || []).join(' ')}
+            onClick={pickMode ? () => onPick(m.name) : undefined}>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</span>
             <span style={{ fontSize: 10.5, opacity: 0.6 }}>{m.density || ''}</span>
             {ws && <span style={{ fontSize: 10, background: 'var(--accent-soft,#efe9fb)', color: 'var(--accent,#7c5cbf)', borderRadius: 4, padding: '0 4px', fontWeight: 700 }}>내 재료</span>}
-            {ws ? (<>
+            {!pickMode && (ws ? (<>
               <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} title="편집"
                 onClick={() => setForm(matFormFromBlock(parseDetector(matText).find((b) => b.type === 'Material' && b.arg === m.name)))}>✎</button>
               <button style={{ ...S.btn, padding: '0 6px', fontSize: 11 }} title="삭제" onClick={() => del(m.name)}>✕</button>
@@ -382,7 +389,7 @@ function MaterialsPanel({ materials, matText, onSave, S }) {
                 onClick={() => setForm({ ...MAT_EMPTY, name: m.name + '_mod', density: (m.density || '').split(/\s+/)[0] || '',
                   unit: (m.density || '').split(/\s+/)[1] || 'g/cm3', state: m.state || 'Solid',
                   rows: (m.elements || ['']).map((el) => ({ el, v: '' })) })}>⧉</button>
-            )}
+            ))}
           </div>
         )
       })}
@@ -417,19 +424,25 @@ export default function GeometryTab({ active = true }) {
   const [busy, setBusy] = useState('')
   const [help, setHelp] = useState(null)             // {name, text}
   const [addSel, setAddSel] = useState('Volume')
-  const [err, setErr] = useState('')
   const [editMode, setEditMode] = useState(false)  // click-select + drag gizmo (off = orbit only)
   const [gizmoMode, setGizmoMode] = useState('translate') // translate | rotate
   const controlsRef = useRef(null)
 
-  // dock panels (left icon rail, like the other tabs); open ones stack left→right
+  // dock panels (left icon rail, like the other tabs). Accordion by default —
+  // ONE panel open at a time; the material picker (matPick) is the exception
+  // and may appear alongside it.
   const PANELS = [
     { key: 'docs', label: '지오메트리', Icon: Stack },
     { key: 'blocks', label: '블록', Icon: TreeStructure },
     { key: 'props', label: '속성', Icon: SlidersHorizontal },
     { key: 'materials', label: '재료', Icon: Flask },
   ]
-  const [open, setOpen] = useState({ docs: true, blocks: true, props: false, materials: false })
+  const [activePanel, setActivePanel] = useState('docs')
+  const [matPick, setMatPick] = useState(false)   // 재료 panel in pick-for-field mode
+  const togglePanel = (key) => {
+    if (key === 'materials' && matPick) setMatPick(false) // rail click resolves the pick instance
+    setActivePanel((a) => (a === key ? null : key))
+  }
   const [matText, setMatText] = useState('')   // workspace materials.txt (raw)
   const saveMatFile = async (content) => {
     await geomMatFilePut(content)
@@ -442,20 +455,32 @@ export default function GeometryTab({ active = true }) {
       const r = await geomStlUpload(file)
       setStlFiles((await geomStlList()).files)
       setField('File', r.name)               // point the edited block at it
-    } catch (e) { setErr(String(e.message || e)) }
+    } catch (e) { notify(e.message || e) }
   }
-  const togglePanel = (key) => setOpen((o) => ({ ...o, [key]: !o[key] }))
-  const openPanels = PANELS.filter((p) => open[p.key])
-  // selecting a block opens the property panel (still closable by hand)
-  const selectBlock = (i) => { setSelIdx(i); if (i >= 0) setOpen((o) => (o.props ? o : { ...o, props: true })) }
+  // selecting a block switches to the property panel (accordion)
+  const selectBlock = (i, openProps = true) => { setSelIdx(i); if (i >= 0 && openProps) setActivePanel('props') }
+
+  // 1..4 toggle the dock panels (like the other tabs' rail hotkeys)
+  useEffect(() => {
+    if (!active) return
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      const idx = Number(e.key) - 1
+      if (idx >= 0 && idx < PANELS.length) togglePanel(PANELS[idx].key)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [active, matPick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshDocs = async () => setDocs((await geomDocs()).docs)
   useEffect(() => {
-    geomCatalog().then(setCatalog).catch((e) => setErr(String(e.message || e)))
+    geomCatalog().then(setCatalog).catch((e) => notify(e.message || e))
     geomMaterials().then((d) => setMaterials(d.materials)).catch(() => {})
     geomMatFileGet().then((d) => setMatText(d.content)).catch(() => {})
     geomStlList().then((d) => setStlFiles(d.files)).catch(() => {})
-    refreshDocs().catch((e) => setErr(String(e.message || e)))
+    refreshDocs().catch((e) => notify(e.message || e))
   }, [])
 
   const items = useMemo(() => buildLive(blocks), [blocks])
@@ -527,7 +552,7 @@ export default function GeometryTab({ active = true }) {
     const name = (newName || '').trim()
     if (!name) return
     try { await geomDocPut(name, NEW_DOC); setNewName(null); await refreshDocs(); await openDoc(name) }
-    catch (e) { setErr(String(e.message || e)) }
+    catch (e) { notify(e.message || e) }
   }
   // deletion is confirmed by a second click on the row's 확인 button
   // (window.confirm is suppressed behind the portal proxy)
@@ -539,12 +564,13 @@ export default function GeometryTab({ active = true }) {
   }
 
   const validate = async () => {
-    setBusy('validate'); setErr('')
+    setBusy('validate')
     try {
       if (dirty && docName) await saveDoc()
       const r = await geomValidate(serializeDetector(blocks))
       setReport(r); setValidated(r.geometry?.length ? r.geometry : null)
-    } catch (e) { setErr(String(e.message || e)) }
+      if (!r.ok) notify('Geant4 검증에서 문제가 발견되었습니다 — 리포트를 확인하세요.')
+    } catch (e) { notify(e.message || e) }
     setBusy('')
   }
   const applyDoc = async (name, applied) => {
@@ -553,7 +579,8 @@ export default function GeometryTab({ active = true }) {
       if (dirty && name === docName) await saveDoc()
       if (applied) await geomRemove(name); else await geomApply(name)
       await refreshDocs()
-    } catch (e) { setErr(String(e.message || e)) }
+      notify(applied ? `"${name}" 를 detector.txt에서 제거했습니다.` : `"${name}" 를 detector.txt에 적용했습니다.`, 'info')
+    } catch (e) { notify(e.message || e) }
     setBusy('')
   }
 
@@ -624,8 +651,20 @@ export default function GeometryTab({ active = true }) {
     row: (active) => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 7px', borderRadius: 6, cursor: 'pointer', fontSize: 13, background: active ? 'var(--accent-soft,#efe9fb)' : 'transparent' }),
   }
 
+  // accordion panel + (optionally) the material-picker instance beside it
+  const shownPanels = []
+  if (activePanel) {
+    const p = PANELS.find((x) => x.key === activePanel)
+    if (p) shownPanels.push({ ...p, pick: false })
+  }
+  if (matPick) {
+    if (activePanel === 'materials') shownPanels[shownPanels.length - 1].pick = true
+    else shownPanels.push({ ...PANELS.find((x) => x.key === 'materials'), pick: true })
+  }
+
   return (
-    <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
+    // clearglass: 지오메트리 탭은 Simulation 탭의 투명 모드처럼 블러 없는 판넬
+    <div className="stage clearglass" style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       {/* ── full-bleed 3D preview (canvas must not init inside the hidden tab) ── */}
       <div style={{ position: 'absolute', inset: 0 }}>
         {active && (
@@ -637,54 +676,54 @@ export default function GeometryTab({ active = true }) {
         )}
       </div>
 
-      {/* ── floating action bar (top-right) ── */}
-      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 3, display: 'flex', gap: 6, alignItems: 'center',
-        padding: '7px 9px', borderRadius: 12, border: '1px solid rgba(var(--glass-rgb,255,255,255),0.6)',
-        background: 'rgba(var(--glass-rgb,255,255,255),0.45)', backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)', boxShadow: 'var(--shadow)' }}>
-        <button style={S.btnP} disabled={!docName || !!busy} onClick={saveDoc}>{dirty ? '저장 *' : '저장'}</button>
-        <button style={{ ...S.btnP, background: '#2a7d46' }} disabled={!blocks.length || !!busy} onClick={validate}>
-          {busy === 'validate' ? 'Geant4 실행 중…' : 'Geant4 검증'}
-        </button>
-        {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브로</button>}
-        <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮기거나 돌릴 수 있습니다 (POS/RotateXYZ 자동 반영)"
-          style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
-          onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
-        {editMode && [['translate', '이동'], ['rotate', '회전']].map(([m, label]) => (
-          <button key={m} style={{ ...S.btn, padding: '3px 9px',
-            background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
-            color: gizmoMode === m ? '#fff' : 'inherit' }}
-            onClick={() => setGizmoMode(m)}>{label}</button>
-        ))}
-      </div>
-      {/* status hint under the action bar */}
-      <div style={{ position: 'absolute', top: 56, right: 12, zIndex: 3, fontSize: 11.5,
-        padding: '3px 9px', borderRadius: 8, background: 'rgba(var(--glass-rgb,255,255,255),0.55)',
-        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', color: err ? '#dc2626' : 'inherit',
-        fontWeight: err ? 600 : 400, opacity: 0.9 }}>
-        {err || (editMode ? `편집 모드 — 클릭=선택, 드래그=${gizmoMode === 'rotate' ? '회전 (RotateXYZ 반영)' : '이동 (POS 반영)'}`
-          : validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)')}
+      {/* status hint (top-right) — actions live in the 지오메트리 panel */}
+      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 3, fontSize: 11.5,
+        padding: '3px 9px', borderRadius: 8, background: 'rgba(var(--glass-rgb,255,255,255),0.55)', opacity: 0.9 }}>
+        {editMode ? `편집 모드 — 클릭=선택, 드래그=${gizmoMode === 'rotate' ? '회전 (RotateXYZ 반영)' : '이동 (POS 반영)'}`
+          : validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)'}
       </div>
 
-      {/* ── left icon rail (shared RailNav): click to open/close the dock panels ── */}
+      {/* ── left icon rail (shared RailNav): 1..4 hotkeys, accordion panels ── */}
       <RailNav float items={PANELS.map(({ key, label, Icon }) => ({
-        id: key, label, Icon, on: open[key], onClick: () => togglePanel(key),
+        id: key, label, Icon,
+        on: activePanel === key || (key === 'materials' && matPick),
+        onClick: () => togglePanel(key),
       }))} />
 
-      {/* ── open panels, attached to the left in rail order ── */}
-      {openPanels.map(({ key, label }, idx) => (
-        <div key={key} className="simpanel" style={{ left: 86 + idx * 296, width: 284 }}>
+      {/* ── open panels, attached to the left: the accordion panel, plus the
+            material picker instance (accent border) when a field asked for it ── */}
+      {shownPanels.map(({ key, label, pick }, idx) => (
+        <div key={key + (pick ? ':pick' : '')} className="simpanel"
+          style={{ left: 86 + idx * 296, width: 284,
+            ...(pick ? { border: '2px solid var(--accent,#7c5cbf)', boxShadow: '0 0 0 3px rgba(124,92,191,0.25), var(--shadow)' } : {}) }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '9px 12px 7px', borderBottom: '1px solid var(--line, #e2e2e8)', flex: '0 0 auto' }}>
             <b style={{ fontSize: 13 }}>
-              {key === 'blocks' && docName ? <>블록 <span style={{ fontWeight: 400, opacity: 0.65 }}>— {docName}{dirty ? ' *' : ''}</span></> : label}
+              {pick ? '재료 선택 — 클릭하면 필드에 들어갑니다'
+                : key === 'blocks' && docName ? <>블록 <span style={{ fontWeight: 400, opacity: 0.65 }}>— {docName}{dirty ? ' *' : ''}</span></> : label}
             </b>
             <button style={{ ...S.btn, padding: '0 7px', border: 'none', background: 'transparent', fontSize: 13 }}
-              onClick={() => togglePanel(key)}>✕</button>
+              onClick={() => (pick ? setMatPick(false) : togglePanel(key))}>✕</button>
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
 
             {key === 'docs' && (<>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+                <button style={S.btnP} disabled={!docName || !!busy} onClick={saveDoc}>{dirty ? '저장 *' : '저장'}</button>
+                <button style={{ ...S.btnP, background: '#2a7d46' }} disabled={!blocks.length || !!busy} onClick={validate}>
+                  {busy === 'validate' ? 'Geant4 실행 중…' : 'Geant4 검증'}
+                </button>
+                {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브로</button>}
+                <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮기거나 돌릴 수 있습니다 (POS/RotateXYZ 자동 반영)"
+                  style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
+                  onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
+                {editMode && [['translate', '이동'], ['rotate', '회전']].map(([m, lbl]) => (
+                  <button key={m} style={{ ...S.btn, padding: '3px 9px',
+                    background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
+                    color: gizmoMode === m ? '#fff' : 'inherit' }}
+                    onClick={() => setGizmoMode(m)}>{lbl}</button>
+                ))}
+              </div>
               <button style={{ ...S.btn, width: '100%', marginBottom: 6 }} onClick={() => setNewName(newName === null ? '' : null)}>+ 새로</button>
               {newName !== null && (
                 <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
@@ -742,7 +781,9 @@ export default function GeometryTab({ active = true }) {
             </>)}
 
             {key === 'materials' && (
-              <MaterialsPanel materials={materials} matText={matText} onSave={saveMatFile} S={S} />
+              <MaterialsPanel materials={materials} matText={matText} onSave={saveMatFile} S={S}
+                pickMode={pick}
+                onPick={(name) => { setField('Material', name); setMatPick(false) }} />
             )}
 
             {key === 'props' && (<>
@@ -766,12 +807,13 @@ export default function GeometryTab({ active = true }) {
                       <Field key={name} name={name} spec={spec} value={getParam(sel, name)}
                         onChange={(v) => setField(name, v)} materials={materials}
                         stl={stlFiles} onUploadStl={uploadStl}
+                        onFindMaterial={() => setMatPick(true)}
                         onHelp={(n, s) => setHelp({ name: n, text: s.description || '(설명 없음)' })} />
                     ))}
                   {!schema && <div style={{ fontSize: 12, color: '#b45309' }}>카탈로그에 스키마가 없는 블록입니다 — 텍스트로만 편집됩니다.</div>}
                   {!schema && sel.params.map((p, k) => (
                     <Field key={k} name={p.key} spec={{}} value={p.value} onChange={(v) => setField(p.key, v)} materials={materials}
-                      stl={stlFiles} onUploadStl={uploadStl} onHelp={() => {}} />
+                      stl={stlFiles} onUploadStl={uploadStl} onFindMaterial={() => setMatPick(true)} onHelp={() => {}} />
                   ))}
                 </>
               )}
