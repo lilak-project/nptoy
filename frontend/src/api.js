@@ -24,6 +24,11 @@ export async function post(url, body) {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
   return res.json()
 }
+export async function put(url, body) {
+  const res = await fetch(apiURL(url), { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body ?? {}) })
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
+  return res.json()
+}
 export async function del(url) {
   const res = await fetch(apiURL(url), { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)

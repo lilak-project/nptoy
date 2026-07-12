@@ -456,6 +456,26 @@ app.include_router(build_community_router(
 ))
 
 
+# ── tab layout: config-driven top-level tabs (kit LayoutEditor + layout.py) ────
+# STRUCTURE only — which tabs show + their order/labels/icons/hidden. The panel
+# behind each tab is code (Shell.jsx PAGES), so nptoy's rich in-tab rails are
+# untouched. Managers edit this from the Settings 탭 and the portal Manage UI.
+from layout import build_layout_router
+
+_LAYOUT_DEFAULT = {"tabs": [
+    {"id": "setup", "icon": "home"},
+    {"id": "geometry", "icon": "shapes"},
+    {"id": "simulation", "icon": "spinner"},
+    {"id": "files", "icon": "folder"},
+    {"id": "community", "icon": "community"},
+    {"id": "set", "icon": "settings"},
+]}
+app.include_router(build_layout_router(
+    path=config.DATA_ROOT / "layout.json",
+    identity=_cm_identity, defaults=_LAYOUT_DEFAULT,
+))
+
+
 @app.get("/api/inputs/file")
 def inputs_get_file(slot: str, user: PortalUser = Depends(require_user)) -> dict:
     try:

@@ -50,6 +50,10 @@ export default function Shell() {
   const { t, lang } = useLang()
   const [me, setMe] = useState(portalProfile())   // refreshed from portal DB via /api/whoami
   const [tab, setTab] = useState("setup")
+  // Top-level tab layout: code default (TABS) overridden by the saved /api/layout
+  // (order/labels/icons/hidden), editable from the Settings 탭 + portal Manage UI.
+  // Only the tab STRIP is config-driven — each tab's in-tab rail stays code (PAGES).
+  const [layout, setLayout] = useState({ tabs: TABS })
   const [sess, setSess] = useState(null)      // live simulation session (polled)
   const [proj, setProj] = useState({ name: '', run: null })  // setup name + next run number
   const [notifs, setNotifs] = useState([])    // @mention notifications (shown in the \ drawer)
@@ -214,7 +218,19 @@ export default function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const tabs = TABS.map((x) => ({ id: x.id, label: t('tab_' + x.id), icon: x.icon }))
+  // Load the saved tab layout (falls back to the code default on error).
+  useEffect(() => {
+    get('/api/layout').then((l) => { if (l && Array.isArray(l.tabs) && l.tabs.length) setLayout(l) }).catch(() => {})
+  }, [])
+
+  // If the active tab got hidden/removed in the layout, fall back to the first visible.
+  useEffect(() => {
+    const vis = (layout.tabs || TABS).filter((tb) => !tb.hidden)
+    if (vis.length && !vis.some((tb) => tb.id === tab)) setTab(vis[0].id)
+  }, [layout]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const visible = (layout.tabs || TABS).filter((tb) => !tb.hidden)
+  const tabs = visible.map((tb) => ({ id: tb.id, label: tb.label || t('tab_' + tb.id), icon: tb.icon }))
 
   const st = STATUS[statusKey(sess, everRef.current)]
   // During a live session show its actual run number; otherwise the next run # that
@@ -265,9 +281,17 @@ export default function Shell() {
         onExit={() => { window.location.href = portalHome() }}
         exitLabel={t('exit_portal')}
       >
-        {/* Keep every tab mounted (display toggle) so page state survives switches. */}
-        {TABS.map(({ id }) => (
-          <div key={id} style={{ height: '100%', display: tab === id ? 'block' : 'none' }}>{PAGES[id]}</div>
+        {/* Keep every visible tab mounted (display toggle) so page state survives switches.
+            PAGES is keyed by tab id (the in-tab rails live inside those pages); a tab
+            added in the editor with no code panel shows a simple placeholder. */}
+        {visible.map((tb) => (
+          <div key={tb.id} style={{ height: '100%', display: tab === tb.id ? 'block' : 'none' }}>
+            {PAGES[tb.id] || (
+              <div style={{ padding: 40, color: 'var(--text-muted)', fontSize: 'var(--fs-small, 12px)' }}>
+                {tb.label || tb.id}
+              </div>
+            )}
+          </div>
         ))}
       </AppShell>
 

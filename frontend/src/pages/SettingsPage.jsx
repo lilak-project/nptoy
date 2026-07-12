@@ -4,6 +4,7 @@ import { get } from '../api'
 import AccountSection from './settings/AccountSection'
 import ManageUsers from './settings/ManageUsers'
 import ServiceLocal from './settings/ServiceLocal'
+import LayoutSettings from './settings/LayoutSettings'
 import AdminTab from '../g4/AdminTab.jsx'
 
 // Portal-centric Settings: account + user management come from the portal;
@@ -35,7 +36,7 @@ export default function SettingsPage() {
           {active === 'account' && <AccountSection me={me} />}
           {active === 'users' && <ManageUsers />}
           {active === 'limits' && <AdminTab />}
-          {active === 'tabs' && <ServiceLocal title={t('set_tabs')} />}
+          {active === 'tabs' && <LayoutSettings />}
           {active === 'profiles' && <ServiceLocal title={t('set_profiles')} />}
         </div>
       </div>
