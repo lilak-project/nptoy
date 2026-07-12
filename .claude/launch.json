@@ -6,6 +6,12 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd backend && exec /Users/jungwoo/web_service/service_manager/.venv/bin/uvicorn main:app --port 8340"],
       "port": 8340
+    },
+    {
+      "name": "nptoy-frontend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd frontend && LILAK_UI_PATH=/Users/jungwoo/web_service/lilak_ui NPTOY_BACKEND=http://localhost:8340 exec npm run dev -- --port 5199"],
+      "port": 5199
     }
   ]
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { RailNav } from 'lilak-ui'
 import DetectorForm from './DetectorForm.jsx'
 import ReactionForm from './ReactionForm.jsx'
 import PhysicsForm from './PhysicsForm.jsx'
@@ -428,25 +429,21 @@ export default function InputsTab({ me, onSetupName }) {
 
   return (
     <div className="inputstab" ref={rootRef}>
-      {/* ── icon rail (dock): duplicate-openable `file`, a divider, then the menus ── */}
-      <div className="filesrail">
-        <button title="file (목록 열기 / 닫기)"
-          onClick={() => setFileOpen((v) => !v)}
-          className={`railbtn dup ${fileOpen ? 'on' : ''}`}>
-          <Package size={20} weight={fileOpen ? 'fill' : 'regular'} /><span>file</span>
-        </button>
-        <div className="railsep" />
-        {RAIL_ITEMS.map(({ key, label: lbl, Icon }) => {
+      {/* ── icon rail (shared RailNav): duplicate-openable `file`, a divider, the menus ── */}
+      <RailNav style={{ margin: '12px 0 12px 12px' }} items={[
+        { id: 'file', label: 'file', title: 'file (목록 열기 / 닫기)', Icon: Package, dup: true, on: fileOpen, onClick: () => setFileOpen((v) => !v) },
+        { type: 'divider' },
+        ...RAIL_ITEMS.map(({ key, label: lbl, Icon }) => {
           const editor = EDITOR_KEYS.includes(key)
           const markable = editor || key === 'style'   // style also gets the preset-changed border
-          return (
-            <button key={key} title={lbl} onClick={() => selectMenu(key)}
-              className={`railbtn ${active === key ? 'on' : ''} ${markable && changed.has(key) ? 'changed' : ''} ${editor && (data.blank || []).includes(key) ? 'needfill' : ''}`}>
-              <Icon size={20} weight={active === key ? 'fill' : 'regular'} /><span>{lbl}</span>
-            </button>
-          )
-        })}
-      </div>
+          return {
+            id: key, label: lbl, Icon, on: active === key,
+            changed: markable && changed.has(key),
+            needfill: editor && (data.blank || []).includes(key),
+            onClick: () => selectMenu(key),
+          }
+        }),
+      ]} />
 
       {/* ── file box(es) — preset: 3 boxes / 2 boxes (system+shared merged) / 1 box ── */}
       {fileOpen && active === 'preset' && (

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, Suspense, lazy } from 'react'
 import { Gauge, Terminal, Stack, SlidersHorizontal, Path, Play, Stop, Lightning, FilmStrip } from '@phosphor-icons/react'
-import { ColorPicker } from 'lilak-ui'
+import { ColorPicker, RailNav } from 'lilak-ui'
 import Session from './Session.jsx'
 import BatchPanel from './BatchPanel.jsx'
 import StylePresets from './StylePresets.jsx'
@@ -630,33 +630,22 @@ export default function SimulationTab() {
         </div>
       )}
 
-      {/* macOS-style vertical dock: click an icon to open its panel on the right */}
-      <div className="simrail">
-        {PANELS.filter((p) => p.key !== 'batch' || batchAllowed).map(({ key, label, Icon }) => (
-          <button key={key} className={`railbtn ${active === key ? 'on' : ''}`} title={label}
-            onClick={() => setActive((a) => (a === key ? null : key))}>
-            <Icon size={21} weight={active === key ? 'fill' : 'regular'} />
-            <span>{label}</span>
-          </button>
-        ))}
-        {/* session actions — divider + coloured buttons that drive the live session */}
-        <div className="railsep" />
-        <button className={`railbtn act ${sessState.alive ? 'stop' : 'start'}`}
-          title={stopDisabled ? 'run 완료 후 stop할 수 있습니다' : (sessState.alive ? 'viewer 실행 정지 (stop)' : 'viewer 실행 시작 (start)')}
-          disabled={stopDisabled}
-          onClick={() => sessionRef.current?.toggle?.()}>
-          {sessState.alive ? <Stop size={21} weight="fill" /> : <Play size={21} weight="fill" />}
-          <span>{sessState.alive ? 'stop' : 'start'}</span>
-        </button>
-        <button className="railbtn act run" title="/run/beamOn 1" disabled={!sessState.idle}
-          onClick={() => sessionRef.current?.run?.(1)}>
-          <Lightning size={21} weight="fill" /><span>run 1</span>
-        </button>
-        <button className="railbtn act run" title="/run/beamOn 10" disabled={!sessState.idle}
-          onClick={() => sessionRef.current?.run?.(10)}>
-          <Lightning size={21} weight="fill" /><span>run 10</span>
-        </button>
-      </div>
+      {/* macOS-style vertical dock (shared RailNav): panels, then a divider + the
+          coloured action buttons that drive the live session */}
+      <RailNav float items={[
+        ...PANELS.filter((p) => p.key !== 'batch' || batchAllowed).map(({ key, label, Icon }) => ({
+          id: key, label, Icon, on: active === key, onClick: () => setActive((a) => (a === key ? null : key)),
+        })),
+        { type: 'divider' },
+        { id: 'sess', label: sessState.alive ? 'stop' : 'start', Icon: sessState.alive ? Stop : Play, weight: 'fill',
+          tone: sessState.alive ? 'stop' : 'start', disabled: stopDisabled,
+          title: stopDisabled ? 'run 완료 후 stop할 수 있습니다' : (sessState.alive ? 'viewer 실행 정지 (stop)' : 'viewer 실행 시작 (start)'),
+          onClick: () => sessionRef.current?.toggle?.() },
+        { id: 'run1', label: 'run 1', Icon: Lightning, weight: 'fill', tone: 'run', disabled: !sessState.idle,
+          title: '/run/beamOn 1', onClick: () => sessionRef.current?.run?.(1) },
+        { id: 'run10', label: 'run 10', Icon: Lightning, weight: 'fill', tone: 'run', disabled: !sessState.idle,
+          title: '/run/beamOn 10', onClick: () => sessionRef.current?.run?.(10) },
+      ]} />
 
       {active && (
         <div className={`simpanel ${active}`}>

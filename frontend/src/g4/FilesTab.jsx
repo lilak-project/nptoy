@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { RailNav } from 'lilak-ui'
 import { filesList, filesRead, filesDelete, downloadFile, downloadFilesZip } from './api.js'
 import RootViewer from './RootViewer.jsx'
 import { ArrowClockwise, ArrowUUpLeft, Folder, File, FolderOpen, ChartBar } from '@phosphor-icons/react'
@@ -123,18 +124,13 @@ export default function FilesTab({ active = true }) {
 
   return (
     <div className="filesbrowse" ref={rootRef}>
-      {/* ── far left: icon rail (dock, like Simulation). Both are duplicate-openable
-             (they stack alongside other panels), so they carry a default outline. ── */}
-      <div className="filesrail">
-        <button className={`railbtn dup ${showFiles ? 'on' : ''}`} title="파일 브라우저"
-          onClick={() => setShowFiles((v) => !v)}>
-          <FolderOpen size={21} weight={showFiles ? 'fill' : 'regular'} /><span>파일</span>
-        </button>
-        <button className={`railbtn dup ${showRoot ? 'on' : ''}`} title="ROOT 컨트롤" disabled={!rootPath}
-          onClick={() => setShowRoot((v) => !v)}>
-          <ChartBar size={21} weight={showRoot ? 'fill' : 'regular'} /><span>root</span>
-        </button>
-      </div>
+      {/* ── far left: icon rail (shared RailNav, like Simulation). Both are
+             duplicate-openable (stack alongside other panels), so they carry the
+             default `dup` outline. ── */}
+      <RailNav style={{ margin: '12px 0 12px 12px' }} items={[
+        { id: 'files', label: '파일', title: '파일 브라우저', Icon: FolderOpen, dup: true, on: showFiles, onClick: () => setShowFiles((v) => !v) },
+        { id: 'root', label: 'root', title: 'ROOT 컨트롤', Icon: ChartBar, dup: true, on: showRoot, disabled: !rootPath, onClick: () => setShowRoot((v) => !v) },
+      ]} />
 
       {/* ── file browser panel (individual box) ──────────────────────────── */}
       {showFiles && (

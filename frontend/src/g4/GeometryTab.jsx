@@ -13,6 +13,7 @@
  * triangles), plus overlap/error reports.
  */
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { RailNav } from 'lilak-ui'
 import { Stack, TreeStructure, SlidersHorizontal, Flask } from '@phosphor-icons/react'
 import {
   geomCatalog, geomMaterials, geomDocs, geomDocGet, geomDocPut, geomDocDelete,
@@ -665,14 +666,10 @@ export default function GeometryTab({ active = true }) {
           : validated ? '검증된 지오메트리 (Geant4가 만든 정확한 형상)' : '라이브 미리보기 — 점선/주황 = 근사 (검증 후 정확 표시)')}
       </div>
 
-      {/* ── left icon rail: click to open/close the dock panels ── */}
-      <div className="simrail">
-        {PANELS.map(({ key, label, Icon }) => (
-          <button key={key} title={label} className={`railbtn ${open[key] ? 'on' : ''}`} onClick={() => togglePanel(key)}>
-            <Icon size={20} weight={open[key] ? 'fill' : 'regular'} /><span>{label}</span>
-          </button>
-        ))}
-      </div>
+      {/* ── left icon rail (shared RailNav): click to open/close the dock panels ── */}
+      <RailNav float items={PANELS.map(({ key, label, Icon }) => ({
+        id: key, label, Icon, on: open[key], onClick: () => togglePanel(key),
+      }))} />
 
       {/* ── open panels, attached to the left in rail order ── */}
       {openPanels.map(({ key, label }, idx) => (
