@@ -481,7 +481,6 @@ _LAYOUT_DEFAULT = {"tabs": [
         {"id": "users", "label": "사용자 관리", "icon": "users"},
         {"id": "limits", "label": "사용자 한도", "icon": "gauge"},
         {"id": "tabs", "label": "탭", "icon": "browse"},
-        {"id": "profiles", "label": "프로필 유형", "icon": "user"},
     ]},
 ]}
 app.include_router(build_layout_router(

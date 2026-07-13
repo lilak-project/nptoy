@@ -3,7 +3,6 @@ import { SideNav, useLang } from 'lilak-ui'
 import { get } from '../api'
 import AccountSection from './settings/AccountSection'
 import ManageUsers from './settings/ManageUsers'
-import ServiceLocal from './settings/ServiceLocal'
 import LayoutSettings from './settings/LayoutSettings'
 import AdminTab from '../g4/AdminTab.jsx'
 
@@ -31,7 +30,6 @@ export default function SettingsPage({ menuConfig }) {
     ...(isManager ? [
       { id: 'limits', label: '사용자 한도', icon: 'gauge', group: 'appearance' },
       { id: 'tabs', label: t('set_tabs'), icon: 'browse', group: 'appearance' },
-      { id: 'profiles', label: t('set_profiles'), icon: 'user', group: 'appearance' },
     ] : []),
   ], menuConfig)
   const [active, setActive] = useState('account')
@@ -48,7 +46,6 @@ export default function SettingsPage({ menuConfig }) {
           {cur === 'users' && <ManageUsers />}
           {cur === 'limits' && <AdminTab />}
           {cur === 'tabs' && <LayoutSettings />}
-          {cur === 'profiles' && <ServiceLocal title={t('set_profiles')} />}
         </div>
       </div>
     </div>
