@@ -8,18 +8,17 @@ default is used for standalone dev.
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
 # ── Identity / JWT ────────────────────────────────────────────────────────────
 # Same scheme as the portal (HS256). The portal forwards the user's portal JWT in
-# the Authorization header (identity.accepts_portal_token = true) and shares the
-# secret via env, so we validate with the exact same key + fallbacks the portal
-# uses (service_manager/app/config.py).
-SECRET_KEY = (
-    os.environ.get("PORTAL_SECRET_KEY")
-    or os.environ.get("ELOG_SECRET_KEY")
-    or "lilak-dev-secret-CHANGE-in-production"
-)
+# the Authorization header (identity.accepts_portal_token = true); we must validate
+# with the exact same key. The portal resolves it three ways (env → the data-root
+# secret.key file → generate) and dropped the old shared constant, so we resolve it
+# identically — anything else rejects every token. SECRET_KEY is assigned below,
+# once PORTAL_DATA_ROOT is known. Kept in step with service_manager/app/config.py
+# and lilak_elog/backend/auth.py.
 ALGORITHM = "HS256"
 
 # ── Execution backend (pluggable) ─────────────────────────────────────────────
@@ -32,6 +31,39 @@ RUNNER = os.environ.get("NPTOY_RUNNER") or ("sci" if os.environ.get("SCI_RUNNER_
 SERVICE_NAME = os.environ.get("PORTAL_SERVICE", "nptoy")
 _DEFAULT_DATA_ROOT = Path(__file__).resolve().parent.parent.parent / "data"
 PORTAL_DATA_ROOT = Path(os.environ.get("PORTAL_DATA_ROOT", _DEFAULT_DATA_ROOT))
+
+# JWT signing key — resolve exactly like the portal (env → data-root file →
+# generate) so both sides always land on the same key (service_manager/app/config.py).
+SECRET_KEY_FILE = Path(os.environ.get("PORTAL_SECRET_FILE", PORTAL_DATA_ROOT / "_portal" / "secret.key"))
+
+
+def _resolve_secret_key() -> str:
+    for var in ("PORTAL_SECRET_KEY", "ELOG_SECRET_KEY"):
+        val = os.environ.get(var)
+        if val:
+            return val
+    try:
+        if SECRET_KEY_FILE.exists():
+            val = SECRET_KEY_FILE.read_text().strip()
+            if val:
+                return val
+        SECRET_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        val = secrets.token_urlsafe(48)
+        fd = os.open(SECRET_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(val + "\n")
+        return val
+    except FileExistsError:
+        return SECRET_KEY_FILE.read_text().strip()
+    except OSError as err:
+        raise RuntimeError(
+            f"cannot read or create the JWT signing key at {SECRET_KEY_FILE}: {err}. "
+            f"Set PORTAL_SECRET_KEY, or make the data root writable."
+        ) from err
+
+
+SECRET_KEY = _resolve_secret_key()
+
 DATA_ROOT = PORTAL_DATA_ROOT / SERVICE_NAME          # <data>/nptoy/
 # Per-user tree: <data>/nptoy/user/<key>/{inputs, outputs, saves}
 USERS_ROOT = DATA_ROOT / "user"

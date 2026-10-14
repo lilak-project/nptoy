@@ -3,13 +3,20 @@
 // The portal token (when present) is read the same way the other LILAK services
 // read it, so authed endpoints work once entered through the portal.
 
+// Pick the first *live* token among the candidates. A stale `elog_token` left in
+// localStorage from an earlier elog session must NOT shadow a fresh portal token —
+// that made every authed call 401 while the portal cover looked logged in. So we
+// prefer the portal's own key and skip any candidate whose `exp` is already past
+// (an unparseable/opaque token is treated as live rather than dropped).
 function token() {
-  return (
-    window.__PORTAL_TOKEN__ ||
-    localStorage.getItem('elog_token') ||
-    localStorage.getItem('lilak_portal_token') ||
-    null
-  )
+  const cands = [
+    window.__PORTAL_TOKEN__,
+    localStorage.getItem('lilak_portal_token'),
+    localStorage.getItem('elog_token'),
+  ].filter(Boolean)
+  const now = Date.now() / 1000
+  const live = (t) => { try { return JSON.parse(atob(t.split('.')[1])).exp > now } catch { return true } }
+  return cands.find(live) || cands[0] || null
 }
 
 async function req(path, method = 'GET', body = null) {
