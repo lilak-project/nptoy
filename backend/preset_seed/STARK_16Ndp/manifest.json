@@ -1,0 +1,7 @@
+{
+  "example": "STARK_16Ndp",
+  "detector": "detector.txt",
+  "reaction": "reaction.txt",
+  "physics": "PhysicsListOption.txt",
+  "analysis": "analysis.json"
+}

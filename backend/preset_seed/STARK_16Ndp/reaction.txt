@@ -1,0 +1,28 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Event generator for input/stark_16Ndp_4p415_s12.reaction (stark_16Ndp)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Beam
+    Particle= 16N
+    Energy= 80.0 MeV
+    SigmaEnergy= 0 MeV
+    SigmaThetaX= 0 deg
+    SigmaPhiY= 0 deg
+    SigmaX= 0 mm
+    SigmaY= 0 mm
+    MeanThetaX= 0. deg
+    MeanPhiY= 0 deg
+    MeanX= 0 mm
+    MeanY= 0 mm
+    ZEmission = -1000 mm
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+TwoBodyReaction
+    Beam= 16N
+    Target= 2H
+    Light= 1H
+    Heavy= 17N
+    ExcitationEnergyLight= 0 MeV
+    ExcitationEnergyHeavy= 4.415 MeV
+    CrossSectionPath= stark_16Ndp_4p415_s12.txt CS
+    ShootLight= 1
+    ShootHeavy= 1

@@ -116,6 +116,9 @@ PROJECTS = {
     "W1Mask": {"label": "W1 mask", "dir": f"{_NP}/CSSU/W1Mask",
                "detector": "detector.txt", "reaction": "reaction_am241_gd148.txt"},
     "Plunger": {"label": "Plunger", "dir": f"{_NP}/Plunger"},
+    "STARK_16Ndp": {"label": "STARK 16N(d,p)", "dir": f"{_NP}/jungwoo/stark_16Ndp",
+                    "detector": "input/stark_16Ndp.detector",
+                    "reaction": "input/stark_16Ndp_4p415_s12.reaction"},
 }
 DEFAULT_PROJECT = next(iter(PROJECTS))
 MAX_SESSIONS = int(os.environ.get("NPTOY_MAX_SESSIONS", "4"))     # global live cap

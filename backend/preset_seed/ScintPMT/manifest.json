@@ -2,6 +2,5 @@
   "example": "ScintPMT",
   "detector": "detector.txt",
   "reaction": "reaction.txt",
-  "physics": "PhysicsListOption.txt",
-  "analysis": "analysis.json"
+  "physics": "PhysicsListOption.txt"
 }
