@@ -44,24 +44,8 @@ export default function FilesTab({ active = true }) {
   // Re-list whenever the tab becomes active (files may have changed elsewhere).
   useEffect(() => { if (active) open(pathRef.current) }, [active])
 
-  // Command-mode number keys (like the Simulation tab): 1 = 파일 브라우저, 2 = ROOT
-  // 컨트롤, 0 = 모두 닫기. Only when this tab is on-screen and not typing in a field.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (!rootRef.current || rootRef.current.offsetParent === null) return
-      const tag = (e.target.tagName || '').toUpperCase()
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      let handled = true
-      if (e.key === '1') setShowFiles((v) => !v)
-      else if (e.key === '2') { if (rootPath) setShowRoot((v) => !v) }
-      else if (e.key === '0') { setShowFiles(false); setShowRoot(false) }
-      else handled = false
-      if (handled) { e.preventDefault(); e.stopImmediatePropagation() }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [rootPath])
+  // Number-key toggling (1 = 파일 브라우저, 2 = ROOT, 0 = 모두 닫기) now lives in the
+  // shared RailNav (kit) — no local keydown handler needed.
 
   const clickSort = (k) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
