@@ -187,12 +187,12 @@ function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadSt
   const label = (
     <label title={spec.description || ''} onMouseEnter={() => onHelp(name, spec)} onFocus={() => onHelp(name, spec)}
       style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 2, cursor: 'help',
-        color: spec.optional === false ? 'var(--text-primary,#1a1a1a)' : 'var(--text-secondary,#556)' }}>
+        color: spec.optional === false ? 'var(--dock-text-primary,#1a1a1a)' : 'var(--dock-text-secondary,#556)' }}>
       {name}{spec.optional === false ? ' *' : ''}{spec.unit ? <span style={{ fontWeight: 400, opacity: 0.7 }}> ({spec.unit})</span> : null}
     </label>
   )
   const base = { width: '100%', boxSizing: 'border-box', padding: '5px 8px', fontSize: 13,
-    border: '1px solid var(--border-default,#ccc)', borderRadius: 6, background: 'var(--surface,#fff)' }
+    border: '1px solid var(--dock-border-default,#ccc)', borderRadius: 6, background: 'var(--dock-surface,#fff)' }
   let input
   if (spec.choices) {
     input = (
@@ -209,8 +209,8 @@ function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadSt
         <datalist id="geom-materials">{materials.map((m) => <option key={m.name} value={m.name} />)}</datalist>
         {onFindMaterial && (
           <button title="재료 패널에서 골라서 채우기" onClick={onFindMaterial}
-            style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--border-default,#ccc)',
-              borderRadius: 6, background: 'var(--surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>찾기</button>
+            style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--dock-border-default,#ccc)',
+              borderRadius: 6, background: 'var(--dock-surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>찾기</button>
         )}
       </div>
     )
@@ -225,8 +225,8 @@ function Field({ name, spec, value, onChange, onHelp, materials, stl, onUploadSt
           {value && !names.includes(value) && <option value={value}>{value}</option>}
           {names.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        <label title="STL 파일 업로드 (바이너리/ASCII)" style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--border-default,#ccc)',
-          borderRadius: 6, background: 'var(--surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        <label title="STL 파일 업로드 (바이너리/ASCII)" style={{ padding: '5px 9px', fontSize: 12, border: '1px solid var(--dock-border-default,#ccc)',
+          borderRadius: 6, background: 'var(--dock-surface,#fff)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           업로드
           <input type="file" accept=".stl" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onUploadStl(f); e.target.value = '' }} />
@@ -305,7 +305,7 @@ function MaterialsPanel({ materials, matText, onSave, S, pickMode, onPick }) {
     await onSave(blocks.length ? serializeDetector(blocks) : '')
   }
   const inp = { width: '100%', boxSizing: 'border-box', padding: '4px 7px', fontSize: 12,
-    border: '1px solid var(--border-default,#ccc)', borderRadius: 6, background: 'var(--surface,#fff)' }
+    border: '1px solid var(--dock-border-default,#ccc)', borderRadius: 6, background: 'var(--dock-surface,#fff)' }
 
   if (form) return (
     <div>
@@ -645,8 +645,8 @@ export default function GeometryTab({ active = true }) {
 
   const S = {
     col: { display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0 },
-    box: { background: 'var(--surface,#fff)', border: '1px solid var(--border-default,#ddd)', borderRadius: 10, padding: 10, overflow: 'auto' },
-    btn: { padding: '4px 10px', fontSize: 12, border: '1px solid var(--border-default,#ccc)', borderRadius: 7, background: 'var(--surface,#fff)', cursor: 'pointer' },
+    box: { background: 'var(--dock-surface,#fff)', border: '1px solid var(--dock-border-default,#ddd)', borderRadius: 10, padding: 10, overflow: 'auto' },
+    btn: { padding: '4px 10px', fontSize: 12, border: '1px solid var(--dock-border-default,#ccc)', borderRadius: 7, background: 'var(--dock-surface,#fff)', cursor: 'pointer' },
     btnP: { padding: '4px 12px', fontSize: 12, border: 'none', borderRadius: 7, background: 'var(--accent,#7c5cbf)', color: '#fff', cursor: 'pointer', fontWeight: 600 },
     row: (active) => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 7px', borderRadius: 6, cursor: 'pointer', fontSize: 13, background: active ? 'var(--accent-soft,#efe9fb)' : 'transparent' }),
   }
@@ -715,11 +715,11 @@ export default function GeometryTab({ active = true }) {
                 </button>
                 {validated && <button style={S.btn} onClick={() => { setValidated(null) }}>라이브로</button>}
                 <button title="켜면 3D에서 볼륨을 클릭해 선택하고, 선택된 Volume을 기즈모로 끌어 옮기거나 돌릴 수 있습니다 (POS/RotateXYZ 자동 반영)"
-                  style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
+                  style={{ ...S.btn, background: editMode ? 'var(--accent,#7c5cbf)' : 'var(--dock-surface,#fff)', color: editMode ? '#fff' : 'inherit', fontWeight: 600 }}
                   onClick={() => setEditMode((v) => !v)}>🖱 편집 {editMode ? 'ON' : 'OFF'}</button>
                 {editMode && [['translate', '이동'], ['rotate', '회전']].map(([m, lbl]) => (
                   <button key={m} style={{ ...S.btn, padding: '3px 9px',
-                    background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)',
+                    background: gizmoMode === m ? 'var(--accent,#7c5cbf)' : 'var(--dock-surface,#fff)',
                     color: gizmoMode === m ? '#fff' : 'inherit' }}
                     onClick={() => setGizmoMode(m)}>{lbl}</button>
                 ))}
@@ -727,7 +727,7 @@ export default function GeometryTab({ active = true }) {
               <button style={{ ...S.btn, width: '100%', marginBottom: 6 }} onClick={() => setNewName(newName === null ? '' : null)}>+ 새로</button>
               {newName !== null && (
                 <div style={{ display: 'flex', gap: 5, marginBottom: 6 }}>
-                  <input autoFocus style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
+                  <input autoFocus style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12, border: '1px solid var(--dock-border-default,#ccc)', borderRadius: 6 }}
                     placeholder="이름 (영문/숫자/_/-)" value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') newDoc(); if (e.key === 'Escape') setNewName(null) }} />
@@ -738,7 +738,7 @@ export default function GeometryTab({ active = true }) {
                 <div key={d.name} style={S.row(d.name === docName)} onClick={() => openDoc(d.name)}>
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</span>
                   <span style={{ fontSize: 11, opacity: 0.6 }}>{d.volumes}V {d.solids}S</span>
-                  <button title={d.applied ? 'detector.txt에서 제거' : 'detector.txt에 적용'} style={{ ...S.btn, padding: '1px 7px', background: d.applied ? 'var(--accent,#7c5cbf)' : 'var(--surface,#fff)', color: d.applied ? '#fff' : 'inherit' }}
+                  <button title={d.applied ? 'detector.txt에서 제거' : 'detector.txt에 적용'} style={{ ...S.btn, padding: '1px 7px', background: d.applied ? 'var(--accent,#7c5cbf)' : 'var(--dock-surface,#fff)', color: d.applied ? '#fff' : 'inherit' }}
                     onClick={(e) => { e.stopPropagation(); applyDoc(d.name, d.applied) }}>{d.applied ? '적용됨' : '적용'}</button>
                   {pendingDel === d.name
                     ? <button style={{ ...S.btn, padding: '1px 7px', color: '#dc2626', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); removeDoc(d.name); setPendingDel('') }}>확인</button>
@@ -767,7 +767,7 @@ export default function GeometryTab({ active = true }) {
               ))}
               {docName && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <select style={{ flex: 1, minWidth: 0, fontSize: 12, padding: 3, borderRadius: 6, border: '1px solid var(--border-default,#ccc)' }} value={addSel} onChange={(e) => setAddSel(e.target.value)}>
+                  <select style={{ flex: 1, minWidth: 0, fontSize: 12, padding: 3, borderRadius: 6, border: '1px solid var(--dock-border-default,#ccc)' }} value={addSel} onChange={(e) => setAddSel(e.target.value)}>
                     <option value="Volume">Volume (스크립트 볼륨)</option>
                     <option value="Solid">Solid (재사용/Boolean)</option>
                     <optgroup label="정의된 검출기 (카탈로그)">
@@ -796,7 +796,7 @@ export default function GeometryTab({ active = true }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <b style={{ fontSize: 14 }}>{sel.type}</b>
                     {(sel.type === 'Volume' || sel.type === 'Solid') && (
-                      <input style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 13, border: '1px solid var(--border-default,#ccc)', borderRadius: 6 }}
+                      <input style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 13, border: '1px solid var(--dock-border-default,#ccc)', borderRadius: 6 }}
                         value={sel.arg} onChange={(e) => { const nb = blocks.map((b, i) => i === selIdx ? { ...b, arg: e.target.value.replace(/\s+/g, '_') } : b); touch(nb) }} />
                     )}
                   </div>

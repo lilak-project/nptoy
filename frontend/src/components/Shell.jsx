@@ -184,21 +184,21 @@ export default function Shell() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {mergedNotes.map((n) => (
         <div key={n.key} onClick={n.onClick}
-          style={{ position: 'relative', textAlign: 'left', border: '1px solid var(--nav-border)', background: 'var(--nav-accent)',
-            color: 'var(--nav-text)', borderRadius: 8, padding: '8px 10px', cursor: n.onClick ? 'pointer' : 'default',
+          style={{ position: 'relative', textAlign: 'left', border: '1px solid var(--dock-nav-border)', background: 'var(--dock-nav-accent)',
+            color: 'var(--dock-nav-text)', borderRadius: 8, padding: '8px 10px', cursor: n.onClick ? 'pointer' : 'default',
             borderLeft: n.level === 'error' ? '3px solid #dc2626' : undefined,
             display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontSize: 'var(--fs-small, 12px)', fontWeight: 600, paddingRight: 16 }}>{n.title}</span>
-          {n.body && <span style={{ fontSize: 'var(--fs-tiny, 11px)', color: 'var(--nav-text-muted)', overflow: 'hidden',
+          {n.body && <span style={{ fontSize: 'var(--fs-tiny, 11px)', color: 'var(--dock-nav-text-muted)', overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</span>}
           {n.onDel && <button onClick={(e) => { e.stopPropagation(); n.onDel() }} title="지우기"
             style={{ position: 'absolute', top: 4, right: 6, border: 'none', background: 'transparent',
-              color: 'var(--nav-text-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>}
+              color: 'var(--dock-nav-text-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>×</button>}
         </div>
       ))}
       <button onClick={clearAllNotes}
         style={{ alignSelf: 'flex-start', marginTop: 2, border: 'none', background: 'transparent',
-          color: 'var(--nav-text-muted)', cursor: 'pointer', fontSize: 'var(--fs-tiny, 11px)' }}>모두 지우기</button>
+          color: 'var(--dock-nav-text-muted)', cursor: 'pointer', fontSize: 'var(--fs-tiny, 11px)' }}>모두 지우기</button>
     </div>
   ) : null
 
@@ -237,7 +237,7 @@ export default function Shell() {
   // a new run would use. Output files are {project}_{run}.{user}.sim.root.
   const runNo = sess?.run ?? proj.run
   const status = (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 'var(--fs-tiny, 11px)', color: 'var(--nav-text)' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 'var(--fs-tiny, 11px)', color: 'var(--dock-nav-text)' }}>
       {proj.name && <span style={{ fontWeight: 600 }}>{proj.name}</span>}
       {runNo != null && <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.8 }}>#{runNo}</span>}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-mono)' }}>
@@ -288,7 +288,7 @@ export default function Shell() {
         {visible.map((tb) => (
           <div key={tb.id} style={{ height: '100%', display: tab === tb.id ? 'block' : 'none' }}>
             {PAGES[tb.id] || (
-              <div style={{ padding: 40, color: 'var(--text-muted)', fontSize: 'var(--fs-small, 12px)' }}>
+              <div style={{ padding: 40, color: 'var(--dock-text-muted)', fontSize: 'var(--fs-small, 12px)' }}>
                 {tb.label || tb.id}
               </div>
             )}
@@ -303,9 +303,9 @@ export default function Shell() {
           const err = tst.level === 'error'
           return (
             <div key={tst.id} style={{ pointerEvents: 'auto', maxWidth: 360, display: 'flex', alignItems: 'flex-start', gap: 8,
-              background: 'var(--surface, #fff)', color: err ? '#dc2626' : 'var(--text-primary, #1a1a1a)',
-              border: err ? '1.5px solid #dc2626' : '1px solid var(--border-default, #ddd)',
-              borderLeft: err ? '5px solid #dc2626' : '1px solid var(--border-default, #ddd)', borderRadius: 10,
+              background: 'var(--dock-surface, #fff)', color: err ? '#dc2626' : 'var(--dock-text-primary, #1a1a1a)',
+              border: err ? '1.5px solid #dc2626' : '1px solid var(--dock-border-default, #ddd)',
+              borderLeft: err ? '5px solid #dc2626' : '1px solid var(--dock-border-default, #ddd)', borderRadius: 10,
               padding: err ? '11px 15px' : '9px 13px', fontWeight: err ? 600 : 400,
               boxShadow: err ? '0 8px 28px rgba(220,38,38,0.34)' : '0 6px 20px rgba(0,0,0,0.16)',
               fontSize: 13, lineHeight: 1.4,

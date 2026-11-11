@@ -10,24 +10,24 @@
 
 :root {
   /* ── bridged to the LILAK UI theme tokens (main.jsx applyTheme) ── */
-  --bg: var(--app-bg, #ffffff);
-  --panel: var(--surface, #ffffff);
-  --line: var(--border-default, rgba(20, 30, 45, 0.14));
-  --fg: var(--text-primary, #1b2430);
-  --muted: var(--text-secondary, #5c6775);
-  --hover: var(--surface-3, rgba(20, 30, 45, 0.06));
-  --field: var(--surface-2, rgba(20, 30, 45, 0.05));
-  --code-bg: var(--surface-2, #f4f7fa);
-  --code-fg: var(--text-primary, #20292f);
+  --bg: var(--dock-app-bg, #ffffff);
+  --panel: var(--dock-surface, #ffffff);
+  --line: var(--dock-border-default, rgba(20, 30, 45, 0.14));
+  --fg: var(--dock-text-primary, #1b2430);
+  --muted: var(--dock-text-secondary, #5c6775);
+  --hover: var(--dock-surface-3, rgba(20, 30, 45, 0.06));
+  --field: var(--dock-surface-2, rgba(20, 30, 45, 0.05));
+  --code-bg: var(--dock-surface-2, #f4f7fa);
+  --code-fg: var(--dock-text-primary, #20292f);
   /* main accent — bridged to the lilak primary token (orange via theme/orange.js) */
-  --accent: var(--btn-primary-bg, #e08514);
-  --accent-strong: var(--btn-primary-hover, #b8660a);   /* filled-button hover */
-  --accent-weak: var(--info-bg, rgba(224, 133, 20, 0.15)); /* tint for active surfaces */
+  --accent: var(--dock-btn-primary-bg, #e08514);
+  --accent-strong: var(--dock-btn-primary-hover, #b8660a);   /* filled-button hover */
+  --accent-weak: var(--dock-info-bg, rgba(224, 133, 20, 0.15)); /* tint for active surfaces */
   --accent-line: rgba(224, 133, 20, 0.38);
-  --accent-fg: var(--btn-primary-text, #ffffff);
+  --accent-fg: var(--dock-btn-primary-text, #ffffff);
   /* destructive (bridged to lilak danger tokens) */
-  --danger: var(--danger-text, #c23b30);
-  --danger-weak: var(--danger-bg, rgba(210, 69, 58, 0.12));
+  --danger: var(--dock-danger-text, #c23b30);
+  --danger-weak: var(--dock-danger-bg, rgba(210, 69, 58, 0.12));
   --danger-line: rgba(210, 69, 58, 0.45);
   --shadow: 0 6px 22px rgba(20, 30, 50, 0.12);
   /* Latin → IBM Plex Sans; Hangul falls through to Pretendard (Plex has no Hangul). */
@@ -48,25 +48,25 @@ main.hidden { display: none; }
 /* top bar driven by the lilak nav-* tokens (theme/orange.js sets them → orange) */
 .bar {
   display: flex; align-items: center; gap: 18px;
-  padding: 8px 14px; border-bottom: 1px solid var(--nav-border); background: var(--nav-bg);
+  padding: 8px 14px; border-bottom: 1px solid var(--dock-nav-border); background: var(--dock-nav-bg);
 }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand .brandicons { display: flex; align-items: center; gap: 2px; color: var(--nav-text); }
-.brand .logo { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; color: var(--nav-text); }
+.brand .brandicons { display: flex; align-items: center; gap: 2px; color: var(--dock-nav-text); }
+.brand .logo { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; color: var(--dock-nav-text); }
 .tabs { display: flex; gap: 4px; flex: 1; }
-.tab { border: 0; background: transparent; color: var(--nav-text-muted); cursor: pointer;
+.tab { border: 0; background: transparent; color: var(--dock-nav-text-muted); cursor: pointer;
   font-size: 13px; padding: 6px 12px; border-radius: 8px; }
-.tab:hover { color: var(--nav-text); background: rgba(255, 255, 255, 0.16); }
-.tab.on { color: var(--nav-text); background: rgba(255, 255, 255, 0.26); }
-.account { display: flex; align-items: center; gap: 10px; color: var(--nav-text); font-size: 13px; }
-.setupname { font-size: 12px; color: var(--nav-text); background: rgba(255, 255, 255, 0.2);
+.tab:hover { color: var(--dock-nav-text); background: rgba(255, 255, 255, 0.16); }
+.tab.on { color: var(--dock-nav-text); background: rgba(255, 255, 255, 0.26); }
+.account { display: flex; align-items: center; gap: 10px; color: var(--dock-nav-text); font-size: 13px; }
+.setupname { font-size: 12px; color: var(--dock-nav-text); background: rgba(255, 255, 255, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.42); border-radius: 999px; padding: 3px 10px;
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who { padding-left: 4px; border-left: 1px solid rgba(255, 255, 255, 0.35); color: var(--nav-text); }
+.who { padding-left: 4px; border-left: 1px solid rgba(255, 255, 255, 0.35); color: var(--dock-nav-text); }
 .signout { display: grid; place-items: center; border: 1px solid rgba(255, 255, 255, 0.45);
-  background: transparent; color: var(--nav-text); cursor: pointer; border-radius: 7px;
+  background: transparent; color: var(--dock-nav-text); cursor: pointer; border-radius: 7px;
   width: 28px; height: 28px; }
-.signout:hover { background: rgba(255, 255, 255, 0.18); border-color: var(--nav-text); }
+.signout:hover { background: rgba(255, 255, 255, 0.18); border-color: var(--dock-nav-text); }
 
 /* ── stage / viewer ──────────────────────────────────────────────────────── */
 .stage { position: absolute; inset: 0; }
